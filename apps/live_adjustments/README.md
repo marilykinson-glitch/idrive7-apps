@@ -28,12 +28,17 @@ command — and no extra tab appears. Code: `tune.js`.
 BM3 is picked, the app reads the CustomROM marker and it must match a known ROM profile in
 `bm3_profiles.js`. Unknown ROMs are rejected and no memory is written. `config.bm3MarkerAddress`
 in `app.json` is the firmware-dependent marker location (limited validation). When the marker is
-not there (or the DME has no memory there, NRC 31), the app searches for it once per run, read
-only (the same `2C 02 F301` + `22 F301` pair): `0x1B0` below the end of every MB of program flash
-(`0x80000000`-`0x80FFFFFF`), then the last 4 KB of every MB in overlapping reads, skipping an MB
-the DME answers with NRC 31. Any other refusal ends the check without a search. A place found
-this way is kept in the app's `data/bm3_marker.json` and read first next time; the log lines start
-with `bm3 marker:` and show what was read at the configured place. The profiles
+not there (or the DME has no memory there, NRC 31), the same place is read once with `23`
+(ReadMemoryByAddress, which BM3 ROMs answer for the map read-back), then the app searches for it
+once per run, read only, with `23` when that answered, else with the `2C 02 F301` + `22 F301`
+pair: `0x1B0` below the end of every MB of program flash (`0x80000000`-`0x80FFFFFF`), then the last
+4 KB of every MB in overlapping reads. NRC 31 skips the rest of an MB where nothing was read; a
+silent place is asked once more; the search stops after three silent places or twelve refusals in
+a row. Any refusal of the first read other than NRC 31 ends the check without a search. A place
+found this way is kept (with its read method) in the app's `data/bm3_marker.json` and read first
+next time. When the marker is not found, the Engine Map page lists what was read (the configured
+place with both methods, the search's counts and why it stopped, what each MB end held); the log
+lines start with `bm3 marker:`. The profiles
 hold only ROM identifiers and address / scale metadata, no tune contents. This app is
 independent of and unaffiliated with bootmod3.
 

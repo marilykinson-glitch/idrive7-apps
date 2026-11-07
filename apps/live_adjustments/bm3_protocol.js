@@ -20,8 +20,20 @@ const SAME_OFFSET = 0x1B0;
 const TAIL = 0x1000;
 const STEP = 0xF0;              // 15 bytes of overlap, so a marker across two reads is not missed
 const SAVED_FILE = 'bm3_marker.json';
+const PAUSE_MS = 500;           // before asking a silent DME once more
+const DDDI = '2C/22';           // define F301 over the place, read F301
+const RMBA = '23';              // ReadMemoryByAddress
 
 function hex32(n) { return (n >>> 0).toString(16).toUpperCase().padStart(8, '0'); }
+function hex8(n) { return (n & 0xFF).toString(16).toUpperCase().padStart(2, '0'); }
+function hexBytes(data, n) { return Buffer.from(data).slice(0, n).toString('hex').toUpperCase(); }
+
+/** What a read held, in two letters for the screen: FF (erased), 00, or da(ta). */
+function kind(data) {
+    if (Array.from(data).every((b) => b === 0xFF)) return 'FF';
+    if (Array.from(data).every((b) => b === 0x00)) return '00';
+    return 'data';
+}
 
 function addressBytes(value) {
     if (typeof value !== 'string' || !/^[0-9A-Fa-f]{8}$/.test(value)) throw new Error('invalid 32-bit address');
@@ -74,7 +86,7 @@ function searchPlan() {
     const near = [], tails = [];
     for (let b = 1; b <= FLASH_MB; b++) {
         const end = FLASH_BASE + b * MB;
-        near.push({ block: b, address: end - SAME_OFFSET });
+        near.push({ block: b, address: end - SAME_OFFSET, near: true });
         for (let a = end - TAIL; ; a += STEP) {
             const at = Math.min(a, end - MARKER_SIZE);
             tails.push({ block: b, address: at });
@@ -96,6 +108,7 @@ class Bm3Protocol {
         this.markerAddress = null;     // where the marker was read
         this._searched = null;         // the search ran in this app run: its summary (no second search)
         this._canClear = null;         // 2C 03 F301 answered positively (null: not tried yet)
+        this.report = null;            // what the last failed check read, for the screen (diagLines)
         this._last = Promise.resolve();
     }
 
@@ -110,19 +123,20 @@ class Bm3Protocol {
 
     _savedPath() { return this.options.dataDir ? path.join(this.options.dataDir, SAVED_FILE) : null; }
 
-    _savedAddress() {
+    _saved() {
         const p = this._savedPath();
         if (!p) return null;
         try {
             const s = JSON.parse(fs.readFileSync(p, 'utf8'));
-            return s && /^[0-9A-F]{8}$/.test(s.address) ? s.address : null;
+            if (!s || !/^[0-9A-F]{8}$/.test(s.address)) return null;
+            return { address: s.address, method: s.method === RMBA ? RMBA : DDDI };
         } catch (e) { return null; }
     }
 
-    _save(address, text) {
+    _save(address, method, text) {
         const p = this._savedPath();
         if (!p) return;
-        try { fs.writeFileSync(p, JSON.stringify({ address, marker: text, savedAt: new Date().toISOString() }, null, 1)); } catch (e) {
+        try { fs.writeFileSync(p, JSON.stringify({ address, method, marker: text, savedAt: new Date().toISOString() }, null, 1)); } catch (e) {
             this._log('could not save ' + address + ': ' + String(e && e.message || e));
         }
     }
@@ -130,7 +144,12 @@ class Bm3Protocol {
     /** Define F301 over 255 bytes at `address` and read it. clear: first drop F301's old definition
      * (some DMEs add a new definition to the old one). Only the last 255 bytes of the answer are this
      * address's, should the DME have kept an old definition. */
-    async _readAt(address, clear) {
+    async _readAt(address, clear, method) {
+        if (method === RMBA) {
+            // ReadMemoryByAddress: 23 14 <address> FF -> 63 <255 bytes> (what the map read-back uses)
+            const r = await this.request(0x23, [0x14].concat(addressBytes(address), [MARKER_SIZE]), []);
+            return Buffer.from(r.slice(1));
+        }
         if (clear && this._canClear !== false) {
             try {
                 await this.request(0x2C, [0x03, 0xF3, 0x01], [0x03, 0xF3, 0x01]);
@@ -149,40 +168,60 @@ class Bm3Protocol {
         return data.length > MARKER_SIZE ? data.slice(data.length - MARKER_SIZE) : data;
     }
 
-    /** Read-only search for the marker. Returns { address, data } or null; this._searched says what was read. */
-    async _search(skip) {
+    /** Read-only search for the marker with one read method. Returns { address, data } or null;
+     * this.report.search says what was read. A place the DME does not answer is asked once more; the
+     * search stops after three silent places in a row, or twelve refusals in a row. NRC 31 (no memory
+     * there) skips the rest of that MB, unless something in that MB was read. */
+    async _search(skip, method) {
         const plan = searchPlan().filter((p) => skip.indexOf(hex32(p.address)) < 0);
-        const outOfRange = {};
-        let reads = 0, refused = 0, silent = 0;
-        this._log('not at the configured place: searching ' + plan.length + ' places in the DME flash (read only)');
+        const outOfRange = {}, readIn = {}, nrcs = {}, kinds = [];
+        let reads = 0, silent = 0, refusedRow = 0, stop = null;
+        const sd = { method, reads: 0, nrcs, kinds, stop: null, found: null };
+        this.report.search = sd;
+        this._log('not at the configured place: searching ' + plan.length + ' places in the DME flash with ' + method + ' (read only)');
         for (let i = 0; i < plan.length; i++) {
             const p = plan[i];
             if (outOfRange[p.block]) continue;
             const address = hex32(p.address);
             if (i % 20 === 0) this._progress('searching the DME for the CustomROM marker · ' + Math.round(100 * i / plan.length) + '%');
-            let data;
-            try {
-                data = await this._readAt(address, true);
-                silent = 0;
-            } catch (e) {
-                if (e && e.noAnswer) {
-                    if (++silent >= 3) { this._log('DME stopped answering at ' + address + '; search stopped'); break; }
-                    continue;
+            let data = null;
+            for (let attempt = 0; attempt < 2 && !data; attempt++) {
+                try {
+                    data = await this._readAt(address, true, method);
+                } catch (e) {
+                    if (e && e.noAnswer) {
+                        if (attempt === 0) { await new Promise((r) => setTimeout(r, PAUSE_MS)); continue; }
+                        break;
+                    }
+                    if (e && e.nrc != null) { data = e; break; }
+                    throw e;                                                   // transport gone
                 }
-                if (e && e.nrc === 0x31) { outOfRange[p.block] = true; refused++; continue; }   // no flash there
-                if (e && e.nrc != null) { this._log('DME refused the read at ' + address + ' (' + e.message + '); search stopped'); break; }
-                throw e;                                                                       // transport gone
             }
+            if (!data) {
+                if (++silent >= 3) { stop = 'no answer at ' + address; break; }
+                continue;
+            }
+            silent = 0;
+            if (data instanceof Error) {
+                const nrc = hex8(data.nrc);
+                nrcs[nrc] = (nrcs[nrc] || 0) + 1;
+                if (data.nrc === 0x31 && !readIn[p.block]) { outOfRange[p.block] = true; continue; }
+                if (++refusedRow >= 12) { stop = 'NRC ' + nrc + ' at ' + address; break; }
+                continue;
+            }
+            refusedRow = 0;
             reads++;
+            readIn[p.block] = true;
+            if (p.near) kinds.push(address.slice(0, 3) + ':' + kind(data));
             if (data.indexOf(MARKER) >= 0) {
-                this._searched = { reads, found: address };
-                this._log('found at ' + address + ' after ' + reads + ' reads: ' + markerText(data));
-                return { address, data };
+                sd.reads = reads; sd.found = address;
+                this._log('found at ' + address + ' (' + method + ') after ' + reads + ' reads: ' + markerText(data));
+                return { address, method, data };
             }
         }
-        const blocks = Object.keys(outOfRange).map((b) => hex32(FLASH_BASE + (b - 1) * MB).slice(0, 3) + 'xxxxx').join(' ');
-        this._searched = { reads, found: null };
-        this._log('not found: ' + reads + ' places read' + (refused ? ', no flash (NRC 31) in MB blocks starting ' + blocks : ''));
+        sd.reads = reads; sd.stop = stop;
+        this._log('not found with ' + method + ': ' + reads + ' places read; refusals ' + JSON.stringify(nrcs)
+            + (stop ? '; stopped: ' + stop : '') + '; first places: ' + kinds.join(' '));
         return null;
     }
 
@@ -204,47 +243,88 @@ class Bm3Protocol {
 
     /** Find the CustomROM marker and match its ROM key to a known profile. The configured address is
      * read first, exactly as before (one 2C + one 22); a place found by an earlier search is read
-     * before it. Only when the marker is not there, or the DME has no memory there (NRC 31), the
-     * read-only search runs, once per app run. Any other refusal (security, session) ends the check. */
+     * before it. When the marker is not there (or the DME has no memory there, NRC 31), the same
+     * place is read once with 23 (ReadMemoryByAddress, which BM3 ROMs answer for the map read-back),
+     * then the read-only search runs once per app run, with 23 when that answered, else 2C/22. Any
+     * other refusal of the first read (security, session) ends the check. */
     async identify() {
         this.profile = null;
         this.rom = null;
         this.markerAddress = null;
         const configured = String(this.config.bm3MarkerAddress || '').toUpperCase();
         addressBytes(configured);
-        const saved = this._savedAddress();
+        const saved = this._saved();
+        if (!this._searched) this.report = { configured, reads: [], search: null };
+        const report = this.report;
         const tried = [];
         let found = null;
-        for (const address of [saved, configured]) {
-            if (!address || tried.indexOf(address) >= 0) continue;
+        const attempt = async (address, method) => {
             let data;
             try {
-                data = await this._readAt(address, tried.length > 0);
+                data = await this._readAt(address, tried.length > 0, method);
             } catch (e) {
-                tried.push(address);
-                if (e && e.nrc === 0x31) { this._log(address + ': no memory there (NRC 31)'); continue; }
+                tried.push(address + method);
+                if (e && e.nrc != null && !this._searched) report.reads.push({ address, method, result: 'NRC ' + hex8(e.nrc) });
+                if (e && e.nrc != null) this._log(address + ' (' + method + '): ' + e.message);
+                if (e && e.nrc === 0x31) return null;
+                if (e && e.nrc != null && method === RMBA) return null;    // 23 refused: the 2C/22 answer stands
                 throw e;
             }
-            tried.push(address);
-            if (data.indexOf(MARKER) >= 0) { found = { address, data }; break; }
-            this._log(address + ': no marker, read ' + preview(data));
+            tried.push(address + method);
+            if (data.indexOf(MARKER) >= 0) return { address, method, data };
+            if (!this._searched) report.reads.push({ address, method, result: hexBytes(data, 16) });
+            this._log(address + ' (' + method + '): no marker, read ' + preview(data));
+            return data;
+        };
+        const places = [];
+        if (saved) places.push(saved);
+        places.push({ address: configured, method: DDDI }, { address: configured, method: RMBA });
+        let rmbaAnswers = false;
+        for (const pl of places) {
+            if (tried.indexOf(pl.address + pl.method) >= 0) continue;
+            if (pl.method === RMBA && this._searched) continue;           // probed in the first check of this run
+            const r = await attempt(pl.address, pl.method);
+            if (r && r.method) { found = r; break; }
+            if (r && pl.method === RMBA) rmbaAnswers = true;
         }
         if (!found) {
-            if (!this._searched) found = await this._search(tried);
+            if (!this._searched) {
+                this._searched = true;
+                const method = rmbaAnswers ? RMBA : DDDI;
+                found = await this._search(tried.filter((t) => t.slice(8) === method).map((t) => t.slice(0, 8)), method);
+            }
             if (!found) {
-                const s = this._searched || { reads: 0 };
-                throw new Error('BM3 CustomROM marker absent (' + configured + ' and ' + s.reads + ' other places read)');
+                const sd = report.search || { reads: 0 };
+                throw new Error('BM3 CustomROM marker absent (' + configured + ' and ' + sd.reads + ' other places read)');
             }
         }
         this.markerAddress = found.address;
-        if (found.address !== configured || !this._searched) this._log('read at ' + found.address + ': ' + markerText(found.data));
-        if (found.address !== configured && found.address !== saved) this._save(found.address, markerText(found.data));
+        this._log('read at ' + found.address + ' (' + found.method + '): ' + markerText(found.data));
+        if (!saved || saved.address !== found.address || saved.method !== found.method) {
+            if (found.address !== configured || found.method !== DDDI) this._save(found.address, found.method, markerText(found.data));
+        }
         const rom = romFromData(found.data, this.profiles);
         const profile = this.profiles[rom];
         if (!profile || !profile.mapSwActAddr || profile.rom !== rom) throw new Error('BM3 profile unavailable');
+        this.report = null;
         this.rom = rom;
         this.profile = profile;
-        return { rom, address: found.address };
+        return { rom, address: found.address, method: found.method };
+    }
+
+    /** Up to four short lines for the screen: what the check read, after it failed (null when verified). */
+    diagLines() {
+        const d = this.report;
+        if (!d || this.profile) return null;
+        const lines = d.reads.slice(0, 2).map((r) => r.address + ' (' + r.method + '): ' + r.result);
+        const sd = d.search;
+        if (sd) {
+            const nrc = Object.keys(sd.nrcs).map((k) => 'NRC ' + k + ' x' + sd.nrcs[k]).join(' · ');
+            lines.push('Search (' + sd.method + '): ' + sd.reads + ' read' + (nrc ? ' · ' + nrc : '')
+                + (sd.stop ? ' · stopped: ' + sd.stop : ''));
+            if (sd.kinds.length) lines.push('MB ends: ' + sd.kinds.join(' '));
+        }
+        return lines.length ? lines : null;
     }
 
     ready() {
@@ -344,4 +424,4 @@ class Bm3Protocol {
     }
 }
 
-module.exports = { Bm3Protocol, markerRom, markerText, addressBytes, positive, searchPlan };
+module.exports = { Bm3Protocol, markerRom, markerText, addressBytes, positive, searchPlan, DDDI, RMBA };

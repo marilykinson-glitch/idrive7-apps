@@ -121,6 +121,12 @@ function drawMap(cv, G, t, m, act, bottom) {
         cv.text('The engine light may flash while the map changes — that is normal', W / 2, cy + 134, 16,
             t.dim, { align: 'center', font: 'label' });
     }
+    // BM3 not identified: what the check read, as many lines as fit above the status line
+    if (m.diag && m.diag.length) {
+        const top = cy + 130, last = bottom - 108, step = 22;
+        const n = Math.max(0, Math.min(m.diag.length, Math.floor((last - top) / step) + 1));
+        for (let i = 0; i < n; i++) cv.text(m.diag[i], W / 2, top + i * step, 15, t.dim, { align: 'center', font: 'label' });
+    }
     noteLine(cv, G, t, m, bottom);
     buttonRow(cv, G, t, [1, 2, 3, 4].map((n) => ['Map ' + n, act.map && act.map(n), m.map === n]),
         bottom, 200, m.busy, 'la_map');

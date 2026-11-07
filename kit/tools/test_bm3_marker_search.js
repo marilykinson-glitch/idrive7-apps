@@ -9,15 +9,17 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { Bm3Protocol, searchPlan } = require('../../apps/live_adjustments/bm3_protocol');
+const { Bm3Protocol, searchPlan, DDDI, RMBA } = require('../../apps/live_adjustments/bm3_protocol');
 
 const PROFILE = { rom: '011000', mapSwActAddr: 'D001D006', burbleActAddr: 'D001D099', wmbaCmd: '3d',
     liveTuneTables: { KF_DZWMIN_SPORT_SOT: { address: 'D001D116', factor: 2 } } };
 const PROFILES = { '011000': PROFILE };
-const READ_ONLY = [0x2C, 0x22];
+const READ_ONLY = [0x2C, 0x22, 0x23];
 
 /** A DME with `mb` MB of flash at 0x80000000 (0xFF where nothing was put), `marks` = { address: text }.
- * opts: refuse2C (NRC), append (definitions add up, as ISO 14229 allows), noClear (2C 03 refused). */
+ * opts: refuse2C (NRC), append (definitions add up, as ISO 14229 allows), noClear (2C 03 refused),
+ * rmba (23 answers; else NRC 11), zeroDddi (2C/22 reads flash as zeros, 23 reads it as it is),
+ * refuseTails (NRC for a define that is not at 0x1B0 below an MB end). */
 function dme(mb, marks, opts) {
     opts = opts || {};
     const calls = [];
@@ -41,6 +43,7 @@ function dme(mb, marks, opts) {
         } else if (sid === 0x2C && data[0] === 0x02) {
             const address = Buffer.from(data.slice(4, 8)).readUInt32BE(0), size = (data[8] << 8) | data[9];
             if (opts.refuse2C) reply = [0x7F, 0x2C, opts.refuse2C];
+            else if (opts.refuseTails && (address & 0xFFFFF) !== 0xFFE50) reply = [0x7F, 0x2C, opts.refuseTails];
             else if (address < 0x80000000 || address + size > 0x80000000 + mb * 0x100000) reply = [0x7F, 0x2C, 0x31];
             else {
                 if (!opts.append) defs = [];
@@ -51,9 +54,14 @@ function dme(mb, marks, opts) {
             if (!defs.length) reply = [0x7F, 0x22, 0x31];
             else {
                 const out = [];
-                defs.forEach((d) => { for (let i = 0; i < d.size; i++) out.push(byte(d.address + i)); });
+                defs.forEach((d) => { for (let i = 0; i < d.size; i++) out.push(opts.zeroDddi ? 0 : byte(d.address + i)); });
                 reply = [0x62, 0xF3, 0x01].concat(out);
             }
+        } else if (sid === 0x23) {
+            const address = Buffer.from(data.slice(1, 5)).readUInt32BE(0), size = data[5];
+            if (!opts.rmba) reply = [0x7F, 0x23, 0x11];
+            else if (address < 0x80000000 || address + size > 0x80000000 + mb * 0x100000) reply = [0x7F, 0x23, 0x31];
+            else { reply = [0x63]; for (let i = 0; i < size; i++) reply.push(byte(address + i)); }
         }
         assert(accept(reply), 'reply not accepted: ' + Buffer.from(reply).toString('hex'));
         return reply;
@@ -87,7 +95,7 @@ const definedAt = (c) => Buffer.from(c.slice(5, 9)).toString('hex').toUpperCase(
     let lines = [], dir = tmp();
     let d = dme(8, { '807FFE50': 'BM3_R#011000#' });
     let p = protocol(d, dir, lines);
-    assert.deepStrictEqual(await p.identify(), { rom: '011000', address: '807FFE50' });
+    assert.deepStrictEqual(await p.identify(), { rom: '011000', address: '807FFE50', method: DDDI });
     assert.strictEqual(d.calls.length, 2);
     assert.deepStrictEqual(d.calls[0].slice(0, 4), [0x2C, 0x02, 0xF3, 0x01]);
     assert(!fs.existsSync(path.join(dir, 'bm3_marker.json')), 'nothing saved for the configured place');
@@ -99,7 +107,7 @@ const definedAt = (c) => Buffer.from(c.slice(5, 9)).toString('hex').toUpperCase(
     assert.strictEqual((await p.identify()).address, '80FFFE50');
     assert.strictEqual(p.rom, '011000');
     assert(d.defines().length <= 17, 'first pass only: ' + d.defines().length);
-    assert(lines.some((l) => /no marker, read FFFF/.test(l)), lines.join('\n'));
+    assert(lines.some((l) => /807FFE50 \(2C\/22\): no marker, read FFFF/.test(l)), lines.join('\n'));
     assert(lines.some((l) => /found at 80FFFE50 .*BM3_R#011000#/.test(l)), lines.join('\n'));
     assert.strictEqual(JSON.parse(fs.readFileSync(path.join(dir, 'bm3_marker.json'), 'utf8')).address, '80FFFE50');
     // the next app run reads the saved place first: one define + one read, no search
@@ -122,7 +130,7 @@ const definedAt = (c) => Buffer.from(c.slice(5, 9)).toString('hex').toUpperCase(
     d = dme(4, { '803FFE50': 'BM3_R#011000#' });
     p = protocol(d, dir, lines);
     assert.strictEqual((await p.identify()).address, '803FFE50');
-    assert(lines.some((l) => /807FFE50: no memory there \(NRC 31\)/.test(l)), lines.join('\n'));
+    assert(lines.some((l) => /807FFE50 \(2C\/22\): DME rejected 2C: NRC 31/.test(l)), lines.join('\n'));
 
     // 5. No marker anywhere (8 MB): the search ends, blocks without flash are skipped after one
     //    refusal, the note says how much was read, and it does not search again in this run.
@@ -132,10 +140,16 @@ const definedAt = (c) => Buffer.from(c.slice(5, 9)).toString('hex').toUpperCase(
     await assert.rejects(() => p.identify(), /marker absent \(807FFE50 and \d+ other places read\)/);
     const searched = d.defines().length;
     assert(searched > 100 && searched < 8 * 19 + 16, 'reads: ' + searched);
-    assert(lines.some((l) => /not found: .*NRC 31.*808xxxxx/.test(l)), lines.join('\n'));
+    assert(lines.some((l) => /not found with 2C\/22: \d+ places read; refusals \{"31":8\}/.test(l)), lines.join('\n'));
+    let shown = p.diagLines();
+    assert.strictEqual(shown[0], '807FFE50 (2C/22): ' + 'FF'.repeat(16));
+    assert.strictEqual(shown[1], '807FFE50 (23): NRC 11');
+    assert(/^Search \(2C\/22\): \d+ read · NRC 31 x8$/.test(shown[2]), shown[2]);
+    assert.strictEqual(shown[3], 'MB ends: 800:FF 801:FF 802:FF 803:FF 804:FF 805:FF 806:FF');
     const before = d.calls.length;
     await assert.rejects(() => p.identify(), /marker absent/);
-    assert.strictEqual(d.calls.length - before, 2, 'no second search in the same run');
+    assert.strictEqual(d.calls.length - before, 2, 'no second search in the same run (2C 02, 22)');
+    assert.deepStrictEqual(p.diagLines(), shown, 'the screen keeps what the search read');
     assert(!fs.existsSync(path.join(dir, 'bm3_marker.json')));
 
     // 6. A DME that refuses the define (security, as an MHD DME): the check ends at once, no search.
@@ -176,7 +190,39 @@ const definedAt = (c) => Buffer.from(c.slice(5, 9)).toString('hex').toUpperCase(
     p = protocol(d, dir, lines);
     await assert.rejects(() => p.identify(), /marker absent/);
     assert(n < 20, 'stopped after silence: ' + n);
-    assert(lines.some((l) => /stopped answering/.test(l)), lines.join('\n'));
+    assert(lines.some((l) => /stopped: no answer at/.test(l)), lines.join('\n'));
 
-    console.log('BM3 marker search checks passed (configured / saved / first pass / tails / no flash / not found / refused / appending DME / unknown ROM / silent DME).');
+
+    // 10. 2C/22 reads the flash as zeros, 23 reads it: the marker is found at the configured place
+    //     with 23, kept, and read with 23 first next run (one request).
+    lines = []; dir = tmp();
+    d = dme(8, { '807FFE50': 'BM3_R#011000#' }, { rmba: true, zeroDddi: true });
+    p = protocol(d, dir, lines);
+    assert.deepStrictEqual(await p.identify(), { rom: '011000', address: '807FFE50', method: RMBA });
+    assert.strictEqual(p.diagLines(), null);
+    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(dir, 'bm3_marker.json'), 'utf8')).method, RMBA);
+    d = dme(8, { '807FFE50': 'BM3_R#011000#' }, { rmba: true, zeroDddi: true });
+    p = protocol(d, dir, []);
+    assert.strictEqual((await p.identify()).method, RMBA);
+    assert.strictEqual(d.calls.length, 1);
+    assert.strictEqual(d.calls[0][0], 0x23);
+
+    // 11. 23 answers, the marker is elsewhere: the search reads with 23 (one request per place).
+    lines = []; dir = tmp();
+    d = dme(8, { '803FFE50': 'BM3_R#011000#' }, { rmba: true, zeroDddi: true });
+    p = protocol(d, dir, lines);
+    assert.deepStrictEqual(await p.identify(), { rom: '011000', address: '803FFE50', method: RMBA });
+    assert(d.calls.filter((c) => c[0] === 0x23).length <= 6, 'search with 23');
+
+    // 12. The DME refuses every read but those 0x1B0 below an MB end (NRC 22): the search goes on
+    //     past single refusals, stops after twelve in a row, and the screen says so.
+    lines = []; dir = tmp();
+    d = dme(8, {}, { refuseTails: 0x22 });
+    p = protocol(d, dir, lines);
+    await assert.rejects(() => p.identify(), /marker absent \(807FFE50 and 7 other places read\)/);
+    shown = p.diagLines();
+    assert(/^Search \(2C\/22\): 7 read · NRC 22 x12 · NRC 31 x8 · stopped: NRC 22 at 800FF/.test(shown[2]), shown[2]);
+    assert(lines.some((l) => /stopped: NRC 22 at/.test(l)), lines.join('\n'));
+
+    console.log('BM3 marker search checks passed (configured / saved / first pass / tails / no flash / not found / refused / appending DME / unknown ROM / silent DME / 23 read / refusals on screen).');
 })().catch((e) => { console.error(e); process.exit(1); });

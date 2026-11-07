@@ -257,6 +257,7 @@ class TuneControl {
             rpm: this.rpm(),
             minCoolingRpm: MIN_COOLING_RPM,
             targetAgg: this.targetAgg,
+            diag: this.tuner === 'bm3' && !this.verified && this.bm3 ? this.bm3.diagLines() : null,   // what the failed check read
             busy: this.busy,
             note: this._waitNote ? 'Reading the DME - press again in a moment' : this.note,
             noteType: this._waitNote ? 'warn' : this.noteType,
