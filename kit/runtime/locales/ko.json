@@ -1831,5 +1831,18 @@
   "On · the centre screen's map": "켜기 · 중앙 화면의 지도",
   "Whole map": "전체 지도",
   "Zoom 1.25×": "확대 1.25×",
-  "Zoom 1.5×": "확대 1.5×"
+  "Zoom 1.5×": "확대 1.5×",
+  "VietMap signs": "VietMap 표지판",
+  "VietMap's sign on the cluster": "계기판의 VietMap 표지판",
+  "Show on": "표시 위치",
+  "Sign position": "표지판 위치",
+  "Sign size": "표지판 크기",
+  "While BMW shows its own sign": "BMW 표지판이 표시될 때",
+  "Cluster and HUD": "계기판과 HUD",
+  "Cluster only": "계기판만",
+  "HUD only": "HUD만",
+  "Top right": "오른쪽 위",
+  "Top left": "왼쪽 위",
+  "BMW's sign only": "BMW 표지판만",
+  "VietMap's sign too": "VietMap 표지판도"
 }

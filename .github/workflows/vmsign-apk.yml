@@ -1,0 +1,78 @@
+name: VietMap Signs APK
+
+# The phone app of VietMap signs (android/vmsign), built and published as a release whose APK a phone
+# downloads directly: https://github.com/<owner>/<repo>/releases/latest/download/VietMapSigns.apk
+# A failed build's log goes to the branch ci-log (ci.log), readable without signing in.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'android/vmsign/**'
+      - '.github/workflows/vmsign-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vmsign-apk
+  cancel-in-progress: false
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Build the APK
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle -p android/vmsign assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
+      - name: Publish the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER=$(sed -n "s/^def appVersion = '\(.*\)'/\1/p" android/vmsign/app/build.gradle)
+          APK=android/vmsign/app/build/outputs/apk/release/app-release.apk
+          test -f "$APK"
+          mkdir -p out
+          cp "$APK" "out/VietMapSigns-$VER.apk"
+          cp "$APK" out/VietMapSigns.apk
+          TAG="vmsign-v$VER"
+          NOTES="VietMap Signs $VER, built from ${GITHUB_SHA::7}. On the phone: download VietMapSigns.apk, open it, allow installing from the browser. See android/vmsign/README.md."
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" out/*.apk --clobber
+            gh release edit "$TAG" --notes "$NOTES" --latest
+          else
+            gh release create "$TAG" out/*.apk --title "VietMap Signs $VER" --notes "$NOTES" --latest --target "$GITHUB_SHA"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vmsign
+          path: |
+            out/*.apk
+            build.log
+          if-no-files-found: ignore
+      - name: Keep the log where it can be read (branch ci-log)
+        if: failure()
+        shell: bash
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          if [ -f build.log ]; then tail -c 300000 build.log > /tmp/ci.log; else echo "no build.log" > /tmp/ci.log; fi
+          git checkout --orphan ci-log-run
+          git rm -rf --cached . > /dev/null
+          cp /tmp/ci.log ci.log
+          git add ci.log
+          git commit -m "vmsign build log ${GITHUB_SHA::7}"
+          git push -f origin HEAD:ci-log

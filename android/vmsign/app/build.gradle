@@ -1,0 +1,52 @@
+plugins {
+    id 'com.android.application'
+}
+
+// The version shown in the app and sent to the car; the workflow names the release after it.
+def appVersion = '0.1.0'
+def appCode = 1
+
+android {
+    namespace 'io.github.idrive7apps.vmsign'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'io.github.idrive7apps.vmsign'
+        minSdk 26
+        targetSdk 34
+        versionCode appCode
+        versionName appVersion
+    }
+
+    signingConfigs {
+        // A key kept in the repository (vmsign.p12, password vmsign-public) so every build from
+        // GitHub Actions installs over the last one. Only for this side-loaded app.
+        release {
+            storeFile file('../vmsign.p12')
+            storeType 'pkcs12'
+            storePassword 'vmsign-public'
+            keyAlias 'vmsign'
+            keyPassword 'vmsign-public'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+        debug {
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}

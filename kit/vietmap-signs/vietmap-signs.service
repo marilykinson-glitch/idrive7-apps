@@ -1,0 +1,20 @@
+# vietmap-signs: VietMap Live's speed-limit sign from the phone, drawn over Waze on cluster's map
+# (kit/vietmap-signs/vietmap-signs.js), installed from the Store (kit/vietmap-signs/component.json).
+[Unit]
+Description=VietMap signs: the phone's speed-limit sign on the cluster and the HUD (vietmap-signs)
+After=network.target cluster-render.socket waze-on-cluster.service
+RequiresMountsFor=/var/opt
+StartLimitIntervalSec=0
+
+[Service]
+# root: the firewall rule for the phone's datagrams, and cluster-render's socket
+User=root
+RuntimeDirectory=vietmap-signs
+RuntimeDirectoryMode=0755
+ExecStart=/bin/sh -c 'exec "$(command -v node || echo /usr/bin/node)" /var/opt/vietmap-signs/current/vietmap-signs.js run'
+Restart=always
+RestartSec=3
+TimeoutStopSec=15
+
+[Install]
+WantedBy=oapcontroller.service

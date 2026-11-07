@@ -17,6 +17,9 @@ on:
       - 'kit/tools/test_vietmap_cluster.js'
       - 'kit/vietmap-cluster/**'
       - 'apps/vietmap_cluster/**'
+      - 'kit/tools/test_vietmap_signs.js'
+      - 'kit/vietmap-signs/**'
+      - 'apps/vietmap_signs/**'
       - 'kit/tools/test_zf8hp.js'
       - 'kit/tools/test_live_adjustments.js'
       - 'kit/tools/test_diag_options.js'
@@ -38,6 +41,9 @@ on:
       - 'kit/tools/test_vietmap_cluster.js'
       - 'kit/vietmap-cluster/**'
       - 'apps/vietmap_cluster/**'
+      - 'kit/tools/test_vietmap_signs.js'
+      - 'kit/vietmap-signs/**'
+      - 'apps/vietmap_signs/**'
       - 'kit/tools/test_zf8hp.js'
       - 'kit/tools/test_live_adjustments.js'
       - 'kit/tools/test_diag_options.js'
@@ -58,6 +64,7 @@ jobs:
       - run: node kit/tools/test_bm3_protocol.js
       - run: node kit/tools/test_bm3_marker_search.js
       - run: node kit/tools/test_vietmap_cluster.js
+      - run: node kit/tools/test_vietmap_signs.js
       - run: node kit/tools/test_zf8hp.js
       - run: node kit/tools/test_live_adjustments.js
       - run: node kit/tools/test_diag_options.js

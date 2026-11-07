@@ -17,11 +17,28 @@
         "shared": ["kit/runtime", "kit/platform", "kit/localization", "kit/tools/build.py", "kit/tools/pack_data.py",
           "kit/tools/localize.py", "kit/tools/locale-revisions.json", "kit/tools/oapgen", "oap-sdk"]
       }
+    },
+    {
+      "id": "vietmap_signs",
+      "kind": "app",
+      "path": "apps/vietmap_signs",
+      "manifest": "app.json",
+      "icon": "icon.png",
+      "mguHmi": ["ID7"],
+      "requires": { "idrive7-renderd": "2.1.7", "mgu-inputgate": "1.0.0", "vietmap-signs": "0.1.0" },
+      "build": {
+        "python": "kit/tools/build.py",
+        "args": ["--language", "vi", "--language-setting", "--plain-version", "{id}"],
+        "sdk": "oap-sdk",
+        "output": "dist/{id}@{version}.tgz",
+        "shared": ["kit/runtime", "kit/platform", "kit/localization", "kit/tools/build.py", "kit/tools/pack_data.py",
+          "kit/tools/localize.py", "kit/tools/locale-revisions.json", "kit/tools/oapgen", "oap-sdk"]
+      }
     }
   ],
   "apps": {
     "path": "apps/*",
-    "exclude": ["vietmap_cluster"],
+    "exclude": ["vietmap_cluster", "vietmap_signs"],
     "manifest": "app.json",
     "icon": "icon.png",
     "mguHmi": ["ID7"],
@@ -47,6 +64,12 @@
       "id": "vietmap-cluster",
       "path": "kit/vietmap-cluster",
       "title": "VietMap on cluster helper",
+      "mguHmi": ["ID7"]
+    },
+    {
+      "id": "vietmap-signs",
+      "path": "kit/vietmap-signs",
+      "title": "VietMap signs helper",
       "mguHmi": ["ID7"]
     },
     {
