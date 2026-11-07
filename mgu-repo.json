@@ -38,6 +38,12 @@
   },
   "tools": [
     {
+      "id": "car-probe",
+      "path": "kit/car-probe",
+      "title": "Car probe",
+      "mguHmi": ["ID7"]
+    },
+    {
       "id": "vietmap-cluster",
       "path": "kit/vietmap-cluster",
       "title": "VietMap on cluster helper",

@@ -1,0 +1,19 @@
+{
+  "id": "car-probe",
+  "kind": "tool",
+  "version": "0.1.0",
+  "title": "Car probe",
+  "description": "Read-only: at install it looks at the head unit for the VietMap apps (the car's Wi-Fi, the firewall, the cluster drawing tools, the speed-limit and Android Auto names in the SOME/IP catalog) and prints it into the Store's log (phone page, Logs: updater). Changes nothing; remove it afterwards",
+  "license": "MIT",
+  "mguHmi": ["ID7"],
+  "optional": true,
+  "uninstallable": true,
+  "requires": { "mgu-deploy": "0.6.1" },
+  "files": [
+    { "path": "probe.sh", "mode": "0644" },
+    { "path": "probe-catalog.js", "mode": "0644" },
+    { "path": "LICENSE", "mode": "0644" }
+  ],
+  "restart": [],
+  "postInstall": ["probe.sh"]
+}
