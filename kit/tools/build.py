@@ -398,14 +398,17 @@ def build_start_widget(spec, app_id, icon_src, out, pkg_out=None):
     return {'component': comp, 'layout': ui['containers']['500']['components'][str(WIDGET_COMPONENT_ID)]['cells']['Widget']['value']}
 
 
-def build(app_id, language='en', preview_only=False):
+def build(app_id, language='en', preview_only=False, plain_version=False):
     language = normalize_language(language)
     if not preview_only and not all(os.path.isfile(os.path.join(SDK, name)) for name in ('index.js', 'package.json')):
         raise SystemExit('BMW oap-sdk is missing. Extract it from your own head unit with kit/tools/extract_sdk.js, '
                          'or use --preview-only for an offline preview (no installable package).')
     adir = os.path.join(APPS, app_id)
     spec = json.load(open(os.path.join(adir, 'app.json'), encoding='utf-8'))
+    english_version = spec.get('version')
     spec = localize_spec(spec, language)
+    if plain_version:
+        spec['version'] = english_version    # a source that builds one language only (mgu-repo.json args)
     spec.setdefault('id', app_id)
     ver = spec['version']
     stage = os.path.join(DIST, app_id)
@@ -485,6 +488,10 @@ def build(app_id, language='en', preview_only=False):
     if language == 'ru':
         shutil.copy(os.path.join(KIT, 'localization', 'fonts', 'cyrillic-ru.json'),
                     os.path.join(src, 'javascript', 'kit', 'fonts', 'cyrillic.json'))
+    if language == 'vi':
+        for name in ('vietnamese.json', 'vietnamese-bold.json', 'OFL-Inter.txt'):
+            shutil.copy(os.path.join(KIT, 'localization', 'fonts', name),
+                        os.path.join(src, 'javascript', 'kit', 'fonts', name))
     if language == 'ko':
         # Korean and Chinese are separate fixed-language packages. Loading both large
         # atlases could fragment the renderer's two 1024x4096 glyph shelves.
@@ -608,11 +615,13 @@ def main():
     parser.add_argument('--language', type=normalize_language, choices=languages(), default='en',
                         help='UI language; Korean also accepts ko-KR, ko-kr and ko_KR')
     parser.add_argument('--preview-only', action='store_true', help='stage an offline preview without BMW SDK or installable archives')
+    parser.add_argument('--plain-version', action='store_true',
+                        help="keep app.json's version for a translated build (a Store source that builds one language)")
     parser.add_argument('apps', nargs='*')
     args = parser.parse_args()
     ids = args.apps or sorted(d for d in os.listdir(APPS) if os.path.exists(os.path.join(APPS, d, 'app.json')))
     for i in ids:
-        build(i, args.language, preview_only=args.preview_only)
+        build(i, args.language, preview_only=args.preview_only, plain_version=args.plain_version)
 
 
 if __name__ == '__main__':

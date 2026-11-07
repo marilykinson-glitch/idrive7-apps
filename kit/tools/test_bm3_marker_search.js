@@ -137,7 +137,7 @@ const definedAt = (c) => Buffer.from(c.slice(5, 9)).toString('hex').toUpperCase(
     lines = []; dir = tmp();
     d = dme(8, {});
     p = protocol(d, dir, lines);
-    await assert.rejects(() => p.identify(), /marker absent \(807FFE50 and \d+ other places read\)/);
+    await assert.rejects(() => p.identify(), /marker absent \(807FFE50 \+ \d+ other places read\)/);
     const searched = d.defines().length;
     assert(searched > 100 && searched < 8 * 19 + 16, 'reads: ' + searched);
     assert(lines.some((l) => /not found with 2C\/22: \d+ places read; refusals \{"31":8\}/.test(l)), lines.join('\n'));
@@ -219,7 +219,7 @@ const definedAt = (c) => Buffer.from(c.slice(5, 9)).toString('hex').toUpperCase(
     lines = []; dir = tmp();
     d = dme(8, {}, { refuseTails: 0x22 });
     p = protocol(d, dir, lines);
-    await assert.rejects(() => p.identify(), /marker absent \(807FFE50 and 7 other places read\)/);
+    await assert.rejects(() => p.identify(), /marker absent \(807FFE50 \+ 7 other places read\)/);
     shown = p.diagLines();
     assert(/^Search \(2C\/22\): 7 read · NRC 22 x12 · NRC 31 x8 · stopped: NRC 22 at 800FF/.test(shown[2]), shown[2]);
     assert(lines.some((l) => /stopped: NRC 22 at/.test(l)), lines.join('\n'));

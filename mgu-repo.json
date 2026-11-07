@@ -8,7 +8,7 @@
     "requires": { "idrive7-renderd": "2.1.7", "mgu-inputgate": "1.0.0" },
     "build": {
       "python": "kit/tools/build.py",
-      "args": ["{id}"],
+      "args": ["--language", "vi", "--plain-version", "{id}"],
       "sdk": "oap-sdk",
       "output": "dist/{id}@{version}.tgz",
       "network": ["doom"],

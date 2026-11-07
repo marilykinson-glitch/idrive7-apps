@@ -302,7 +302,7 @@ class Bm3Protocol {
             }
             if (!found) {
                 const sd = report.search || { reads: 0 };
-                throw new Error('BM3 CustomROM marker absent (' + configured + ' and ' + sd.reads + ' other places read)');
+                throw new Error('BM3 CustomROM marker absent (' + configured + ' + ' + sd.reads + ' other places read)');
             }
         }
         this.markerAddress = found.address;

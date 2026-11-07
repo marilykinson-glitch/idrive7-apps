@@ -21,6 +21,7 @@ const PLURAL_RULES = {
     },
     'zh-CN': () => 0,
     ko: () => 0,
+    vi: () => 0,
 };
 function plural(n, one, other, lang) {
     const key = one + '|' + other, lng = lang || language;
