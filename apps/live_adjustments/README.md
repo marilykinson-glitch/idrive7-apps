@@ -26,7 +26,10 @@ command — and no extra tab appears. Code: `tune.js`.
 
 **BM3** (this replaces the separate BM3 Live app; `bm3_protocol.js`, `bm3_profiles.js`): when
 BM3 is picked, the app reads the CustomROM marker and it must match a known ROM profile in
-`bm3_profiles.js`. Unknown ROMs are rejected and no memory is written. `config.bm3MarkerAddress`
+`bm3_profiles.js`. The marker block starts with `BM3_`: `BM3_R#<ROM>#` on the G22; on a G30 520i
+B48 (ROM `R4C9J7W02`) `BM3_` is followed by binary data. The ROM is matched as `#<ROM>`, else as
+the ROM name in plain text anywhere in the block; a block that names none (or more than one) is
+rejected, and the Engine Map page then shows the block in hex. Unknown ROMs are rejected and no memory is written. `config.bm3MarkerAddress`
 in `app.json` is the firmware-dependent marker location (limited validation). When the marker is
 not there (or the DME has no memory there, NRC 31), the same place is read once with `23`
 (ReadMemoryByAddress, which BM3 ROMs answer for the map read-back), then the app searches for it

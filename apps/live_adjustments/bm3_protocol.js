@@ -6,7 +6,7 @@ const path = require('path');
 
 const DME = 0x12;
 const MARKER_SIZE = 0xFF;
-const MARKER = Buffer.from('BM3_R');
+const MARKER = Buffer.from('BM3_');   // 'BM3_R#<ROM>#' on the G22; other ROMs follow 'BM3_' with binary data
 
 // Marker search, used only when the marker is not at config.bm3MarkerAddress (that address was
 // validated on one G22; other DMEs and ROMs keep it elsewhere). Read-only: a temporary identifier
@@ -52,7 +52,7 @@ function positive(reply, sid, prefix) {
     return reply;
 }
 
-/** "BM3_R..." up to the first byte that is not printable (64 characters at most), or null. */
+/** "BM3_..." up to the first byte that is not printable (64 characters at most), or null. */
 function markerText(data) {
     const i = data.indexOf(MARKER);
     if (i < 0) return null;
@@ -68,11 +68,18 @@ function preview(data) {
     return head.toString('hex').toUpperCase() + ' |' + text + '|';
 }
 
+/** The one known ROM the marker names: '#<ROM>' as on the G22, else the ROM name as plain text. */
 function romFromData(data, profiles) {
     if (data.indexOf(MARKER) < 0) throw new Error('BM3 CustomROM marker absent');
-    const text = data.toString('latin1');
-    const keys = Object.keys(profiles || {}).filter((key) => text.includes('#' + key));
-    if (keys.length !== 1) throw new Error('BM3 ROM key not uniquely matched in marker (' + markerText(data) + ')');
+    const text = data.slice(data.indexOf(MARKER)).toString('latin1');
+    const all = Object.keys(profiles || {});
+    let keys = all.filter((key) => text.includes('#' + key));
+    if (!keys.length) keys = all.filter((key) => text.includes(key));
+    if (keys.length > 1) throw new Error('BM3 ROM key not uniquely matched in marker (' + keys.join(', ') + ')');
+    if (!keys.length) {
+        throw new Error(/^BM3_[\x20-\x7e]/.test(text) ? 'BM3 ROM key not uniquely matched in marker (' + markerText(data) + ')'
+            : 'BM3 CustomROM found, but its marker names no known ROM');
+    }
     return keys[0];
 }
 
@@ -254,7 +261,7 @@ class Bm3Protocol {
         const configured = String(this.config.bm3MarkerAddress || '').toUpperCase();
         addressBytes(configured);
         const saved = this._saved();
-        if (!this._searched) this.report = { configured, reads: [], search: null };
+        if (!this._searched || !this.report) this.report = { configured, reads: [], search: null };
         const report = this.report;
         const tried = [];
         let found = null;
@@ -299,11 +306,19 @@ class Bm3Protocol {
             }
         }
         this.markerAddress = found.address;
-        this._log('read at ' + found.address + ' (' + found.method + '): ' + markerText(found.data));
+        this._log('read at ' + found.address + ' (' + found.method + '): ' + markerText(found.data)
+            + ' · block ' + hexBytes(found.data.slice(found.data.indexOf(MARKER)), MARKER_SIZE));
+        report.marker = found;
         if (!saved || saved.address !== found.address || saved.method !== found.method) {
             if (found.address !== configured || found.method !== DDDI) this._save(found.address, found.method, markerText(found.data));
         }
-        const rom = romFromData(found.data, this.profiles);
+        let rom;
+        try { rom = romFromData(found.data, this.profiles); } catch (e) {
+            if (/names no known ROM/.test(e.message)) {
+                throw new Error('BM3 CustomROM found at ' + found.address + ' (' + found.method + '), but its marker names no known ROM');
+            }
+            throw e;
+        }
         const profile = this.profiles[rom];
         if (!profile || !profile.mapSwActAddr || profile.rom !== rom) throw new Error('BM3 profile unavailable');
         this.report = null;
@@ -316,6 +331,12 @@ class Bm3Protocol {
     diagLines() {
         const d = this.report;
         if (!d || this.profile) return null;
+        if (d.marker) {
+            // a marker with no known ROM name: the whole block in hex, 64 bytes a line, so its format
+            // can be read off the screen
+            const block = d.marker.data.slice(d.marker.data.indexOf(MARKER));
+            return [0, 1, 2, 3].map((k) => hexBytes(block.slice(k * 64), 64)).filter((l) => l);
+        }
         const lines = d.reads.slice(0, 2).map((r) => r.address + ' (' + r.method + '): ' + r.result);
         const sd = d.search;
         if (sd) {

@@ -224,5 +224,42 @@ const definedAt = (c) => Buffer.from(c.slice(5, 9)).toString('hex').toUpperCase(
     assert(/^Search \(2C\/22\): 7 read · NRC 22 x12 · NRC 31 x8 · stopped: NRC 22 at 800FF/.test(shown[2]), shown[2]);
     assert(lines.some((l) => /stopped: NRC 22 at/.test(l)), lines.join('\n'));
 
-    console.log('BM3 marker search checks passed (configured / saved / first pass / tails / no flash / not found / refused / appending DME / unknown ROM / silent DME / 23 read / refusals on screen).');
+
+    // 13. The G30 520i B48 (R4C9J7W02) marker: 'BM3_' then binary (as read off that car's screen).
+    //     With the ROM name in the block as plain text, it is verified with the bundled profile.
+    const bundled = require('../../apps/live_adjustments/bm3_profiles');
+    const head = Buffer.from('424D335FF36482F3A41735E0D4E289C4', 'hex').toString('latin1');
+    lines = []; dir = tmp();
+    d = dme(8, { '807FFE50': head + '\x00\x01R4C9J7W02\x00' }, { rmba: true });
+    p = new Bm3Protocol(d.diag, bundled, { bm3MarkerAddress: '807FFE50' }, { dataDir: dir, log: { info: (m) => lines.push(m) } });
+    assert.deepStrictEqual(await p.identify(), { rom: 'R4C9J7W02', address: '807FFE50', method: DDDI });
+    assert.strictEqual(p.profile.mapSwActAddr, '60038006');
+    assert.strictEqual(d.calls.length, 2, 'found at the configured place: one define, one read');
+    assert(lines.some((l) => /block 424D335FF36482F3/.test(l)), lines.join('\n'));
+    //     Without a ROM name in it: rejected, nothing searched, the screen shows the block.
+    lines = []; dir = tmp();
+    d = dme(8, { '807FFE50': head + '\x99\x88\x77' }, { rmba: true });
+    p = new Bm3Protocol(d.diag, bundled, { bm3MarkerAddress: '807FFE50' }, { dataDir: dir, log: { info: (m) => lines.push(m) } });
+    await assert.rejects(() => p.identify(), /BM3 CustomROM found at 807FFE50 \(2C\/22\), but its marker names no known ROM/);
+    assert.strictEqual(p.profile, null);
+    assert.strictEqual(d.calls.length, 2, 'no search when the marker is there');
+    shown = p.diagLines();
+    assert.strictEqual(shown.length, 4);
+    assert(shown[0].startsWith('424D335FF36482F3A41735E0D4E289C4999988'.slice(0, 32) + '998877'), shown[0]);
+    assert.deepStrictEqual(shown.map((l) => l.length), [128, 128, 128, 126]);
+    //     Two known names in one block: ambiguous, rejected.
+    d = dme(8, { '807FFE50': head + 'R4C9J7W02 R4C9J7V02' });
+    p = new Bm3Protocol(d.diag, bundled, { bm3MarkerAddress: '807FFE50' }, {});
+    await assert.rejects(() => p.identify(), /not uniquely matched in marker \(R4C9J7(V|W)02, R4C9J7(V|W)02\)/);
+
+    // 14. A check after a verified one that followed a failed search (tune.js resets verified on a
+    //     refresh): it still works.
+    dir = tmp();
+    d = dme(16, { '80FFFE50': 'BM3_R#011000#' });
+    p = protocol(d, dir, []);
+    await p.identify();
+    await p.identify();
+    assert.strictEqual(p.rom, '011000');
+
+    console.log('BM3 marker search checks passed (configured / saved / first pass / tails / no flash / not found / refused / appending DME / unknown ROM / silent DME / 23 read / refusals on screen / BM3_ + binary marker).');
 })().catch((e) => { console.error(e); process.exit(1); });
