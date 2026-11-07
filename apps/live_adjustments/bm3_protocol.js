@@ -1,8 +1,27 @@
 'use strict';
 // BM3 CustomROM controls on the DME, from BM3 Live by ezl0l (idrive7-apps PR #29).
 
+const fs = require('fs');
+const path = require('path');
+
 const DME = 0x12;
 const MARKER_SIZE = 0xFF;
+const MARKER = Buffer.from('BM3_R');
+
+// Marker search, used only when the marker is not at config.bm3MarkerAddress (that address was
+// validated on one G22; other DMEs and ROMs keep it elsewhere). Read-only: a temporary identifier
+// is defined over each place (2C 02 F301) and read (22 F301), exactly as the normal check does.
+// Places: the same distance below the end of every 1 MB of program flash as 0x807FFE50 sits below
+// the end of 8 MB, then the last 4 KB of every 1 MB, in overlapping 255-byte reads.
+const FLASH_BASE = 0x80000000;
+const FLASH_MB = 16;
+const MB = 0x100000;
+const SAME_OFFSET = 0x1B0;
+const TAIL = 0x1000;
+const STEP = 0xF0;              // 15 bytes of overlap, so a marker across two reads is not missed
+const SAVED_FILE = 'bm3_marker.json';
+
+function hex32(n) { return (n >>> 0).toString(16).toUpperCase().padStart(8, '0'); }
 
 function addressBytes(value) {
     if (typeof value !== 'string' || !/^[0-9A-Fa-f]{8}$/.test(value)) throw new Error('invalid 32-bit address');
@@ -10,31 +29,161 @@ function addressBytes(value) {
 }
 
 function positive(reply, sid, prefix) {
-    if (!reply) throw new Error('DME did not answer');
-    if (reply[0] === 0x7F) throw new Error('DME rejected ' + sid.toString(16).toUpperCase() + ': NRC ' + reply[2].toString(16).toUpperCase().padStart(2, '0'));
+    if (!reply) { const e = new Error('DME did not answer'); e.noAnswer = true; throw e; }
+    if (reply[0] === 0x7F) {
+        const e = new Error('DME rejected ' + sid.toString(16).toUpperCase() + ': NRC ' + reply[2].toString(16).toUpperCase().padStart(2, '0'));
+        e.nrc = reply[2];
+        throw e;
+    }
     const want = [sid + 0x40].concat(prefix || []);
     if (want.some((b, i) => reply[i] !== b)) throw new Error('unexpected DME response: ' + Buffer.from(reply).toString('hex').toUpperCase());
     return reply;
 }
 
-function markerRom(reply, profiles) {
-    positive(reply, 0x22, [0xF3, 0x01]);
-    const data = Buffer.from(reply.slice(3));
-    if (data.indexOf(Buffer.from('BM3_R')) < 0) throw new Error('BM3 CustomROM marker absent');
+/** "BM3_R..." up to the first byte that is not printable (64 characters at most), or null. */
+function markerText(data) {
+    const i = data.indexOf(MARKER);
+    if (i < 0) return null;
+    let j = i;
+    while (j < data.length && j - i < 64 && data[j] >= 0x20 && data[j] < 0x7F) j++;
+    return data.slice(i, j).toString('latin1');
+}
+
+/** First bytes of a read, for the log: hex and printable text. */
+function preview(data) {
+    const head = Buffer.from(data).slice(0, 32);
+    const text = Array.from(head).map((b) => (b >= 0x20 && b < 0x7F ? String.fromCharCode(b) : '.')).join('');
+    return head.toString('hex').toUpperCase() + ' |' + text + '|';
+}
+
+function romFromData(data, profiles) {
+    if (data.indexOf(MARKER) < 0) throw new Error('BM3 CustomROM marker absent');
     const text = data.toString('latin1');
     const keys = Object.keys(profiles || {}).filter((key) => text.includes('#' + key));
-    if (keys.length !== 1) throw new Error('BM3 ROM key not uniquely matched in marker');
+    if (keys.length !== 1) throw new Error('BM3 ROM key not uniquely matched in marker (' + markerText(data) + ')');
     return keys[0];
 }
 
+function markerRom(reply, profiles) {
+    positive(reply, 0x22, [0xF3, 0x01]);
+    return romFromData(Buffer.from(reply.slice(3)), profiles);
+}
+
+/** The places the search reads, in order (config / saved addresses are read before, not here). */
+function searchPlan() {
+    const near = [], tails = [];
+    for (let b = 1; b <= FLASH_MB; b++) {
+        const end = FLASH_BASE + b * MB;
+        near.push({ block: b, address: end - SAME_OFFSET });
+        for (let a = end - TAIL; ; a += STEP) {
+            const at = Math.min(a, end - MARKER_SIZE);
+            tails.push({ block: b, address: at });
+            if (at === end - MARKER_SIZE) break;
+        }
+    }
+    return near.concat(tails);
+}
+
 class Bm3Protocol {
-    constructor(diag, profiles, config) {
+    /** options (optional): { log, dataDir, onProgress(text) } */
+    constructor(diag, profiles, config, options) {
         this.diag = diag;
         this.profiles = profiles;
         this.config = config || {};
+        this.options = options || {};
         this.rom = null;
         this.profile = null;
+        this.markerAddress = null;     // where the marker was read
+        this._searched = null;         // the search ran in this app run: its summary (no second search)
+        this._canClear = null;         // 2C 03 F301 answered positively (null: not tried yet)
         this._last = Promise.resolve();
+    }
+
+    _log(msg) {
+        const log = this.options.log;
+        if (log && log.info) { try { log.info('bm3 marker: ' + msg); } catch (e) { /* logging never stops the check */ } }
+    }
+
+    _progress(text) {
+        if (typeof this.options.onProgress === 'function') { try { this.options.onProgress(text); } catch (e) { /* ignore */ } }
+    }
+
+    _savedPath() { return this.options.dataDir ? path.join(this.options.dataDir, SAVED_FILE) : null; }
+
+    _savedAddress() {
+        const p = this._savedPath();
+        if (!p) return null;
+        try {
+            const s = JSON.parse(fs.readFileSync(p, 'utf8'));
+            return s && /^[0-9A-F]{8}$/.test(s.address) ? s.address : null;
+        } catch (e) { return null; }
+    }
+
+    _save(address, text) {
+        const p = this._savedPath();
+        if (!p) return;
+        try { fs.writeFileSync(p, JSON.stringify({ address, marker: text, savedAt: new Date().toISOString() }, null, 1)); } catch (e) {
+            this._log('could not save ' + address + ': ' + String(e && e.message || e));
+        }
+    }
+
+    /** Define F301 over 255 bytes at `address` and read it. clear: first drop F301's old definition
+     * (some DMEs add a new definition to the old one). Only the last 255 bytes of the answer are this
+     * address's, should the DME have kept an old definition. */
+    async _readAt(address, clear) {
+        if (clear && this._canClear !== false) {
+            try {
+                await this.request(0x2C, [0x03, 0xF3, 0x01], [0x03, 0xF3, 0x01]);
+                this._canClear = true;
+            } catch (e) {
+                if (e && e.noAnswer) throw e;
+                if (this._canClear === null) {
+                    this._canClear = false;
+                    this._log('clearing F301 refused (' + e.message + '); using the last 255 bytes of each answer');
+                }
+            }
+        }
+        await this.request(0x2C, [0x02, 0xF3, 0x01, 0x24].concat(addressBytes(address), [0, MARKER_SIZE]), [0x02, 0xF3, 0x01]);
+        const reply = await this.request(0x22, [0xF3, 0x01], [0xF3, 0x01]);
+        const data = Buffer.from(reply.slice(3));
+        return data.length > MARKER_SIZE ? data.slice(data.length - MARKER_SIZE) : data;
+    }
+
+    /** Read-only search for the marker. Returns { address, data } or null; this._searched says what was read. */
+    async _search(skip) {
+        const plan = searchPlan().filter((p) => skip.indexOf(hex32(p.address)) < 0);
+        const outOfRange = {};
+        let reads = 0, refused = 0, silent = 0;
+        this._log('not at the configured place: searching ' + plan.length + ' places in the DME flash (read only)');
+        for (let i = 0; i < plan.length; i++) {
+            const p = plan[i];
+            if (outOfRange[p.block]) continue;
+            const address = hex32(p.address);
+            if (i % 20 === 0) this._progress('searching the DME for the CustomROM marker · ' + Math.round(100 * i / plan.length) + '%');
+            let data;
+            try {
+                data = await this._readAt(address, true);
+                silent = 0;
+            } catch (e) {
+                if (e && e.noAnswer) {
+                    if (++silent >= 3) { this._log('DME stopped answering at ' + address + '; search stopped'); break; }
+                    continue;
+                }
+                if (e && e.nrc === 0x31) { outOfRange[p.block] = true; refused++; continue; }   // no flash there
+                if (e && e.nrc != null) { this._log('DME refused the read at ' + address + ' (' + e.message + '); search stopped'); break; }
+                throw e;                                                                       // transport gone
+            }
+            reads++;
+            if (data.indexOf(MARKER) >= 0) {
+                this._searched = { reads, found: address };
+                this._log('found at ' + address + ' after ' + reads + ' reads: ' + markerText(data));
+                return { address, data };
+            }
+        }
+        const blocks = Object.keys(outOfRange).map((b) => hex32(FLASH_BASE + (b - 1) * MB).slice(0, 3) + 'xxxxx').join(' ');
+        this._searched = { reads, found: null };
+        this._log('not found: ' + reads + ' places read' + (refused ? ', no flash (NRC 31) in MB blocks starting ' + blocks : ''));
+        return null;
     }
 
     /** One request at a time: a 0x63 reply carries no address, so two 0x23 reads in flight could
@@ -53,18 +202,49 @@ class Bm3Protocol {
         return positive(reply, sid, prefix);
     }
 
+    /** Find the CustomROM marker and match its ROM key to a known profile. The configured address is
+     * read first, exactly as before (one 2C + one 22); a place found by an earlier search is read
+     * before it. Only when the marker is not there, or the DME has no memory there (NRC 31), the
+     * read-only search runs, once per app run. Any other refusal (security, session) ends the check. */
     async identify() {
         this.profile = null;
         this.rom = null;
-        const addr = addressBytes(this.config.bm3MarkerAddress);
-        await this.request(0x2C, [0x02, 0xF3, 0x01, 0x24].concat(addr, [0, MARKER_SIZE]), [0x02, 0xF3, 0x01]);
-        const marker = await this.request(0x22, [0xF3, 0x01], [0xF3, 0x01]);
-        const rom = markerRom(marker, this.profiles);
+        this.markerAddress = null;
+        const configured = String(this.config.bm3MarkerAddress || '').toUpperCase();
+        addressBytes(configured);
+        const saved = this._savedAddress();
+        const tried = [];
+        let found = null;
+        for (const address of [saved, configured]) {
+            if (!address || tried.indexOf(address) >= 0) continue;
+            let data;
+            try {
+                data = await this._readAt(address, tried.length > 0);
+            } catch (e) {
+                tried.push(address);
+                if (e && e.nrc === 0x31) { this._log(address + ': no memory there (NRC 31)'); continue; }
+                throw e;
+            }
+            tried.push(address);
+            if (data.indexOf(MARKER) >= 0) { found = { address, data }; break; }
+            this._log(address + ': no marker, read ' + preview(data));
+        }
+        if (!found) {
+            if (!this._searched) found = await this._search(tried);
+            if (!found) {
+                const s = this._searched || { reads: 0 };
+                throw new Error('BM3 CustomROM marker absent (' + configured + ' and ' + s.reads + ' other places read)');
+            }
+        }
+        this.markerAddress = found.address;
+        if (found.address !== configured || !this._searched) this._log('read at ' + found.address + ': ' + markerText(found.data));
+        if (found.address !== configured && found.address !== saved) this._save(found.address, markerText(found.data));
+        const rom = romFromData(found.data, this.profiles);
         const profile = this.profiles[rom];
         if (!profile || !profile.mapSwActAddr || profile.rom !== rom) throw new Error('BM3 profile unavailable');
         this.rom = rom;
         this.profile = profile;
-        return { rom };
+        return { rom, address: found.address };
     }
 
     ready() {
@@ -164,4 +344,4 @@ class Bm3Protocol {
     }
 }
 
-module.exports = { Bm3Protocol, markerRom, addressBytes, positive };
+module.exports = { Bm3Protocol, markerRom, markerText, addressBytes, positive, searchPlan };

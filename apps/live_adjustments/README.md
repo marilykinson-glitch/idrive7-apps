@@ -27,7 +27,13 @@ command — and no extra tab appears. Code: `tune.js`.
 **BM3** (this replaces the separate BM3 Live app; `bm3_protocol.js`, `bm3_profiles.js`): when
 BM3 is picked, the app reads the CustomROM marker and it must match a known ROM profile in
 `bm3_profiles.js`. Unknown ROMs are rejected and no memory is written. `config.bm3MarkerAddress`
-in `app.json` is the firmware-dependent marker location (limited validation). The profiles
+in `app.json` is the firmware-dependent marker location (limited validation). When the marker is
+not there (or the DME has no memory there, NRC 31), the app searches for it once per run, read
+only (the same `2C 02 F301` + `22 F301` pair): `0x1B0` below the end of every MB of program flash
+(`0x80000000`-`0x80FFFFFF`), then the last 4 KB of every MB in overlapping reads, skipping an MB
+the DME answers with NRC 31. Any other refusal ends the check without a search. A place found
+this way is kept in the app's `data/bm3_marker.json` and read first next time; the log lines start
+with `bm3 marker:` and show what was read at the configured place. The profiles
 hold only ROM identifiers and address / scale metadata, no tune contents. This app is
 independent of and unaffiliated with bootmod3.
 
@@ -150,4 +156,5 @@ Review the rest of the app log for personal information before sharing it.
 python3 kit/tools/build.py live_adjustments
 node kit/tools/test_live_adjustments.js     # in-memory DMEs: off / MHD / BM3 / wrong tune / untuned; in-memory DSC: xDrive
 node kit/tools/test_bm3_protocol.js         # BM3 protocol and ROM profiles
+node kit/tools/test_bm3_marker_search.js    # BM3 marker elsewhere / not found / refused / appending DME
 ```

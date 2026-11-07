@@ -75,7 +75,13 @@ class TuneControl {
 
     async start(link) {
         this.link = link;
-        if (link && link.diag) this.bm3 = new Bm3Protocol(link.diag, bm3Profiles, this.ctx.spec.config || {});
+        if (link && link.diag) {
+            this.bm3 = new Bm3Protocol(link.diag, bm3Profiles, this.ctx.spec.config || {}, {
+                log: this.log,
+                dataDir: this.ctx.dataDir,
+                onProgress: (text) => { this.note = 'BM3: ' + text; this.noteType = 'dim'; },
+            });
+        }
         await this.refresh();
     }
 
