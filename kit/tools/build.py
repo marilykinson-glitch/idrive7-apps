@@ -398,7 +398,25 @@ def build_start_widget(spec, app_id, icon_src, out, pkg_out=None):
     return {'component': comp, 'layout': ui['containers']['500']['components'][str(WIDGET_COMPONENT_ID)]['cells']['Widget']['value']}
 
 
-def build(app_id, language='en', preview_only=False, plain_version=False):
+# the HMI's bundle for a build language
+HMI_LANG = {'vi': 'vi_VN', 'ru': 'ru_RU', 'ko': 'ko_KR', 'zh-CN': 'zh_CN'}
+
+
+# --language-setting: the setting's label and the language's own name
+LANGUAGE_WORD = {'vi': 'Ngôn ngữ', 'ru': 'Язык', 'ko': '언어', 'zh-CN': '语言'}
+LANGUAGE_NAME = {'vi': 'Tiếng Việt', 'ru': 'Русский', 'ko': '한국어', 'zh-CN': '简体中文'}
+
+
+def add_language_setting(spec, language):
+    """A "language" setting first in the settings: English or this build's language (its default),
+    switched while the app runs. For a translated build only (build.py --language-setting)."""
+    spec['settings'] = [{'key': 'language', 'label': 'Language · ' + LANGUAGE_WORD.get(language, language),
+                         'type': 'choice', 'default': language,
+                         'options': [['en', 'English'], [language, LANGUAGE_NAME.get(language, language)]]}] + \
+        [s for s in spec.get('settings', []) if s.get('key') != 'language']
+
+
+def build(app_id, language='en', preview_only=False, plain_version=False, language_choice=False):
     language = normalize_language(language)
     if not preview_only and not all(os.path.isfile(os.path.join(SDK, name)) for name in ('index.js', 'package.json')):
         raise SystemExit('BMW oap-sdk is missing. Extract it from your own head unit with kit/tools/extract_sdk.js, '
@@ -406,10 +424,18 @@ def build(app_id, language='en', preview_only=False, plain_version=False):
     adir = os.path.join(APPS, app_id)
     spec = json.load(open(os.path.join(adir, 'app.json'), encoding='utf-8'))
     english_version = spec.get('version')
+    # an app built with a language setting switches English <-> this language while it runs: its runtime
+    # spec stays English (the kit translates what it draws), and the HMI's texts are this language in
+    # the car language's bundle, English in the others
+    switchable = language_choice and language != 'en'
+    if switchable:
+        add_language_setting(spec, language)
+    english = json.loads(json.dumps(spec))
     spec = localize_spec(spec, language)
     if plain_version:
         spec['version'] = english_version    # a source that builds one language only (mgu-repo.json args)
     spec.setdefault('id', app_id)
+    english.update(id=spec['id'], version=spec['version'])
     ver = spec['version']
     stage = os.path.join(DIST, app_id)
     # The source folder may use display casing; keep the installed identity stable.
@@ -425,6 +451,14 @@ def build(app_id, language='en', preview_only=False, plain_version=False):
     unicode_resources(uidesc, strings, language)
     for lang, tbl in spec.get('strings', {}).items():
         strings.update(tbl)
+    strings_en = strings
+    if switchable:
+        _, uidesc_en, strings_en, _ = build_ui(english, 'en')
+        unicode_resources(uidesc_en, strings_en, 'en')
+        for lang, tbl in english.get('strings', {}).items():
+            strings_en.update(tbl)
+        assert set(strings_en) == set(strings), 'English and %s HMI strings differ in their ids' % language
+    bundle = lambda lang: strings if not switchable or lang == HMI_LANG.get(language) else strings_en
 
     # --- source/ (the npm package) ---
     pkg = {
@@ -512,10 +546,12 @@ def build(app_id, language='en', preview_only=False, plain_version=False):
             body = file.read()
         with open(entry, 'wb') as file:
             file.write(comment.encode('utf-8') + body)
-    rt_spec = {k: spec.get(k) for k in ('id', 'title', 'version', 'screens', 'settings', 'config', 'startWidget')}
+    rt_spec = {k: (english if switchable else spec).get(k) for k in ('id', 'title', 'version', 'screens', 'settings', 'config', 'startWidget')}
     rt_spec['stateIds'] = state_ids
     json.dump(rt_spec, open(os.path.join(src, 'javascript', 'kit', 'app-spec.json'), 'w', encoding='utf-8', newline='\n'), indent=1)
     locale = {'language': language, 'strings': load_locale(language)}
+    if switchable:
+        locale['switchable'] = True
     if credit(language):
         locale['credit'] = credit(language)['corner']
     json.dump(locale, open(os.path.join(src, 'javascript', 'kit', 'locale.json'), 'w', encoding='utf-8', newline='\n'), ensure_ascii=False)
@@ -554,7 +590,7 @@ def build(app_id, language='en', preview_only=False, plain_version=False):
     open(os.path.join(pr, 'uiDescriptions', 'ID7', 'application.xml'), 'w', encoding='utf-8', newline='\n').write(xml)
     json.dump(uidesc, open(os.path.join(pr, 'uiDescriptions', 'ID7', 'uiDescription.json'), 'w', encoding='utf-8', newline='\n'), indent=1)
     for lang in LANGS:
-        json.dump(strings, open(os.path.join(pr, 'variantGroups', 'Common', 'texts', lang + '.json'), 'w', encoding='utf-8', newline='\n'), ensure_ascii=False)
+        json.dump(bundle(lang), open(os.path.join(pr, 'variantGroups', 'Common', 'texts', lang + '.json'), 'w', encoding='utf-8', newline='\n'), ensure_ascii=False)
     make_icon(spec, os.path.join(pr, 'variantGroups', 'Common', 'images', icon))
 
     ir = os.path.join(stage, 'rhmiData')
@@ -571,7 +607,7 @@ def build(app_id, language='en', preview_only=False, plain_version=False):
     open(os.path.join(ir, 'uiDescription', 'application.xml'), 'w', encoding='utf-8', newline='\n').write(xml)
     json.dump(uidesc, open(os.path.join(ir, 'uiDescription', 'uiDescription.json'), 'w', encoding='utf-8', newline='\n'), indent=1)
     for lang in LANGS:
-        json.dump(strings, open(os.path.join(ir, 'strings', lang + '.json'), 'w', encoding='utf-8', newline='\n'), ensure_ascii=False)
+        json.dump(bundle(lang), open(os.path.join(ir, 'strings', lang + '.json'), 'w', encoding='utf-8', newline='\n'), ensure_ascii=False)
     shutil.copy(os.path.join(pr, 'variantGroups', 'Common', 'images', icon), os.path.join(ir, 'resources', icon))
     if spec.get('startWidget'):
         info = build_start_widget(spec, app_id, os.path.join(ir, 'resources', icon), os.path.join(stage, 'rhmiDataStartWidget'),
@@ -615,13 +651,16 @@ def main():
     parser.add_argument('--language', type=normalize_language, choices=languages(), default='en',
                         help='UI language; Korean also accepts ko-KR, ko-kr and ko_KR')
     parser.add_argument('--preview-only', action='store_true', help='stage an offline preview without BMW SDK or installable archives')
+    parser.add_argument('--language-setting', action='store_true',
+                        help='add a Language setting: English or --language, switched while the app runs')
     parser.add_argument('--plain-version', action='store_true',
                         help="keep app.json's version for a translated build (a Store source that builds one language)")
     parser.add_argument('apps', nargs='*')
     args = parser.parse_args()
     ids = args.apps or sorted(d for d in os.listdir(APPS) if os.path.exists(os.path.join(APPS, d, 'app.json')))
     for i in ids:
-        build(i, args.language, preview_only=args.preview_only, plain_version=args.plain_version)
+        build(i, args.language, preview_only=args.preview_only, plain_version=args.plain_version,
+              language_choice=args.language_setting)
 
 
 if __name__ == '__main__':

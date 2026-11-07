@@ -68,6 +68,9 @@ function headUnit(stage, o) {
     };
     if (live) ui._image = (name, cv) => o.image(name, cv);
     const themeFn = () => require(path.join(kitDir, 'themes')).theme(settings.get('theme'));
+    // the "language" setting, as mgu.js applies it
+    const i18n = require(path.join(kitDir, 'i18n'));
+    if (i18n.setLanguage && spec.settings && spec.settings.some((s) => s.key === 'language')) i18n.setLanguage(settings.get('language'));
     const { Display } = require(path.join(kitDir, 'display'));
     settings.onChange = settings.onChange || (() => {});
     display = hu.display = new Display(ui, log, spec, settings, themeFn);

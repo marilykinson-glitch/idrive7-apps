@@ -1,9 +1,13 @@
 'use strict';
 // Local display translation only. Never use this on signal names, IDs or stored settings.
 const locale = require('./locale.json');
-const dict = locale.strings || {};
-const language = locale.language || 'en';
-const localizedValues = new Set(Object.values(dict));
+// The build's language and catalog. A package built with a language setting switches between
+// English and this language while it runs (setLanguage); any other package keeps its language.
+const builtLanguage = locale.language || 'en';
+const builtDict = locale.strings || {};
+let dict = builtDict;
+let language = builtLanguage;
+let localizedValues, folded, pattern;
 const cache = new Map();
 function getLanguage() { return language; }
 // Plural forms live in the locale catalogs: "fault|faults<TAB>ошибка|ошибки|ошибок".
@@ -30,11 +34,25 @@ function plural(n, one, other, lang) {
     const forms = dict[key].split('|'), rule = PLURAL_RULES[lng] || PLURAL_RULES.en;
     return forms[Math.min(rule(n), forms.length - 1)];
 }
-const folded = Object.create(null);
-Object.keys(dict).forEach((key) => { folded[key.toLowerCase()] = dict[key]; });
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const phrases = Object.keys(dict).filter((s) => s.length >= 4 && s.indexOf('|') < 0).sort((a, b) => b.length - a.length);
-const pattern = new RegExp('(^|[^A-Za-z0-9_./])(' + phrases.map(escape).join('|') + ')(?=$|[^A-Za-z0-9_./])', 'gi');
+function index() {
+    localizedValues = new Set(Object.values(dict));
+    folded = Object.create(null);
+    Object.keys(dict).forEach((key) => { folded[key.toLowerCase()] = dict[key]; });
+    const phrases = Object.keys(dict).filter((s) => s.length >= 4 && s.indexOf('|') < 0).sort((a, b) => b.length - a.length);
+    pattern = phrases.length ? new RegExp('(^|[^A-Za-z0-9_./])(' + phrases.map(escape).join('|') + ')(?=$|[^A-Za-z0-9_./])', 'gi') : null;
+    cache.clear();
+}
+index();
+/** 'en' or the build's language (anything else counts as English). Returns whether it changed. */
+function setLanguage(lang) {
+    const next = lang === builtLanguage ? builtLanguage : 'en';
+    if (next === language) return false;
+    language = next;
+    dict = next === 'en' ? {} : builtDict;
+    index();
+    return true;
+}
 function t(value) {
     const s = String(value == null ? '' : value);
     if (language === 'en') return s;
@@ -56,10 +74,13 @@ function t(value) {
             .replace(/\bAVG(?=\s+[+-]?\d)/g, '平均').replace(/\bACC\b/g, '加速') :
             language === 'ru' ? s.replace(/\bmin(?=\s+-?\d)/g, 'мин.').replace(/\bmax(?=\s+-?\d)/g, 'макс.')
                 .replace(/\bAVG(?=\s+[+-]?\d)/g, 'СРЕД.').replace(/\bACC\b/g, 'РАЗГОН') : s;
-        out = out.replace(pattern, (_, before, word) => before + (dict[word] || folded[word.toLowerCase()]));
+        if (pattern) out = out.replace(pattern, (_, before, word) => before + (dict[word] || folded[word.toLowerCase()]));
     }
     if (cache.size >= 2048) cache.clear();
     cache.set(s, out);
     return out;
 }
-module.exports = { t, plural, PLURAL_RULES, dict, getLanguage };
+module.exports = { t, plural, PLURAL_RULES, getLanguage };
+Object.defineProperty(module.exports, 'dict', { enumerable: true, get: () => dict });
+// a package built with a language setting (build.py --language-setting) switches; others are fixed
+if (locale.switchable) module.exports.setLanguage = setLanguage;

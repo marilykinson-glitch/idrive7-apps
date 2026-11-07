@@ -25,6 +25,7 @@ const themes = require('./themes');
 const { Display } = require('./display');
 const { HmiText } = require('./hmi-text');
 const { listSheet } = require('./sheet');
+const i18n = require('./i18n');
 
 const sdkLog = logging.getSDKLogger();
 const SPEC = JSON.parse(fs.readFileSync(path.join(__dirname, 'app-spec.json'), 'utf8'));
@@ -538,6 +539,12 @@ async function runInner(impl) {
     }
     const ui = new Ui(app);
     const settings = new Settings(SPEC.settings);
+    // a "language" setting: English or the build's language, switched while the app runs (drawn text;
+    // the HMI's own texts follow the car's language)
+    if (settings.item('language') && i18n.setLanguage) {
+        i18n.setLanguage(settings.get('language'));
+        settings.onChange((key, value) => { if (key === 'language' && i18n.setLanguage(value)) log.info('language: ' + i18n.getLanguage()); });
+    }
     const display = new Display(ui, log, SPEC, settings, () => themes.theme(settings.get('theme')));
     ui.display = display;
     const ctx = {
