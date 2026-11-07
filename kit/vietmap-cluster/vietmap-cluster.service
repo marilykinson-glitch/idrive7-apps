@@ -1,0 +1,23 @@
+# vietmap-cluster: the centre screen copied to the cluster map while the VietMap on cluster app says so
+# (kit/vietmap-cluster/vietmap-cluster.js), installed from the Store (kit/vietmap-cluster/component.json).
+[Unit]
+Description=VietMap on cluster: the centre screen on the cluster map (vietmap-cluster)
+After=winston.service waze-on-cluster.service
+RequiresMountsFor=/var/opt
+StartLimitIntervalSec=0
+
+[Service]
+# root: BMW's screen grabber, the env file for waze-on-cluster and its restart
+User=root
+Environment=XDG_RUNTIME_DIR=/run/wayland
+RuntimeDirectory=vietmap-cluster
+RuntimeDirectoryMode=0755
+ExecStartPre=/bin/sh -c 'until [ -S /run/wayland/wayland-0 ]; do sleep 1; done'
+ExecStart=/bin/sh -c 'exec "$(command -v node || echo /usr/bin/node)" /var/opt/vietmap-cluster/current/vietmap-cluster.js run'
+Restart=always
+RestartSec=3
+TimeoutStartSec=150
+TimeoutStopSec=15
+
+[Install]
+WantedBy=oapcontroller.service

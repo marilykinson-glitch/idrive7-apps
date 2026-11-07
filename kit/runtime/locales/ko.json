@@ -1823,5 +1823,13 @@
   "SOOT": "그을음",
   "LOAD (ADAPTED)": "적재량 (적응)",
   "ASH (ADAPTED)": "재 (적응)",
-  "Reading the engine unit...": "엔진 제어 장치를 읽는 중..."
+  "Reading the engine unit...": "엔진 제어 장치를 읽는 중...",
+  "VietMap on cluster": "계기판의 VietMap",
+  "Next view": "다음 보기",
+  "Centre screen on the cluster": "계기판에 중앙 화면",
+  "Off · the phone's own cluster map": "끄기 · 휴대폰의 계기판 지도",
+  "On · the centre screen's map": "켜기 · 중앙 화면의 지도",
+  "Whole map": "전체 지도",
+  "Zoom 1.25×": "확대 1.25×",
+  "Zoom 1.5×": "확대 1.5×"
 }

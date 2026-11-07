@@ -1,7 +1,27 @@
 {
   "schema": 1,
+  "components": [
+    {
+      "id": "vietmap_cluster",
+      "kind": "app",
+      "path": "apps/vietmap_cluster",
+      "manifest": "app.json",
+      "icon": "icon.png",
+      "mguHmi": ["ID7"],
+      "requires": { "idrive7-renderd": "2.1.7", "mgu-inputgate": "1.0.0", "vietmap-cluster": "0.1.0" },
+      "build": {
+        "python": "kit/tools/build.py",
+        "args": ["--language", "vi", "--language-setting", "--plain-version", "{id}"],
+        "sdk": "oap-sdk",
+        "output": "dist/{id}@{version}.tgz",
+        "shared": ["kit/runtime", "kit/platform", "kit/localization", "kit/tools/build.py", "kit/tools/pack_data.py",
+          "kit/tools/localize.py", "kit/tools/locale-revisions.json", "kit/tools/oapgen", "oap-sdk"]
+      }
+    }
+  ],
   "apps": {
     "path": "apps/*",
+    "exclude": ["vietmap_cluster"],
     "manifest": "app.json",
     "icon": "icon.png",
     "mguHmi": ["ID7"],
@@ -17,6 +37,12 @@
     }
   },
   "tools": [
+    {
+      "id": "vietmap-cluster",
+      "path": "kit/vietmap-cluster",
+      "title": "VietMap on cluster helper",
+      "mguHmi": ["ID7"]
+    },
     {
       "id": "idrive7-renderd",
       "path": "kit/renderd/prebuilt",

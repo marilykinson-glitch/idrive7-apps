@@ -1,0 +1,37 @@
+{
+  "id": "vietmap_cluster",
+  "title": "VietMap on cluster",
+  "description": "The centre screen's map (VietMap Live on Android Auto, or any app shown there) on the instrument cluster and the HUD, through Waze on cluster: on or off, three views. Its helper (vietmap-cluster) installs with it; Waze on cluster must be installed. Patches nothing; off, Waze on cluster shows the phone's own cluster map again.",
+  "version": "0.1.0",
+  "vendor": "custom",
+  "loggingId": "OAA4",
+  "iconGlyph": "flag",
+  "signals": {
+    "de.bmw.infotainment.vehicle.Vehicle2": { "statusCarSpeed2": "rs" }
+  },
+  "screens": [
+    {
+      "name": "MAIN",
+      "kind": "canvas",
+      "title": "VietMap on cluster",
+      "buttons": [
+        ["BTN_ON", "On"],
+        ["BTN_OFF", "Off"],
+        ["BTN_VIEW", "Next view"],
+        ["BTN_SETTINGS", "Settings"]
+      ]
+    }
+  ],
+  "settings": [
+    {"key": "mode", "label": "Centre screen on the cluster", "type": "choice", "default": "off",
+     "options": [["off", "Off · the phone's own cluster map"], ["on", "On · the centre screen's map"]]},
+    {"key": "view", "label": "View", "type": "choice", "default": "fit",
+     "options": [["fit", "Whole map"], ["zoom1", "Zoom 1.25×"], ["zoom2", "Zoom 1.5×"]]},
+    {"key": "theme", "label": "Colour theme", "type": "choice", "default": "m_tricolour",
+     "options": [["m_red", "M Red"], ["m_tricolour", "M Tricolour"], ["ice", "Ice White"], ["amber", "Night Amber"]]},
+    {"key": "layout", "label": "Screen layout", "type": "choice", "default": "full",
+     "options": [["full", "Full screen"], ["standard", "Standard"]]},
+    {"key": "renderer", "label": "Renderer", "type": "choice", "default": "auto",
+     "options": [["auto", "GPU 60 fps (default)"], ["software", "Software"]]}
+  ]
+}

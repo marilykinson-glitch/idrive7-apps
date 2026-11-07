@@ -1,0 +1,27 @@
+{
+  "id": "vietmap-cluster",
+  "kind": "tool",
+  "version": "0.1.0",
+  "title": "VietMap on cluster helper",
+  "description": "Copies the centre screen (VietMap Live on Android Auto, or any app there) to the cluster's map area through Waze on cluster while the VietMap on cluster app is on; patches nothing, and off or removed leaves Waze on cluster as installed",
+  "license": "MIT",
+  "mguHmi": ["ID7"],
+  "uninstallable": true,
+  "requires": { "mgu-deploy": "0.7.11" },
+  "files": [
+    { "path": "vietmap-cluster.js", "mode": "0644" },
+    { "path": "LICENSE", "mode": "0644" }
+  ],
+  "units": [
+    { "name": "vietmap-cluster.service" }
+  ],
+  "enable": [
+    { "unit": "vietmap-cluster.service", "target": "oapcontroller.service" }
+  ],
+  "dropins": [
+    { "unit": "waze-on-cluster.service", "name": "vietmap-cluster.conf", "from": "woc-dropin.conf" }
+  ],
+  "recmgr": ["vietmap-cluster"],
+  "restart": ["vietmap-cluster.service"],
+  "deactivate": ["node", "vietmap-cluster.js", "deactivate"]
+}

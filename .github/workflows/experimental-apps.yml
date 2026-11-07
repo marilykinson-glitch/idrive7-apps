@@ -14,6 +14,9 @@ on:
       - 'kit/tools/test_live_data.js'
       - 'kit/tools/test_bm3_protocol.js'
       - 'kit/tools/test_bm3_marker_search.js'
+      - 'kit/tools/test_vietmap_cluster.js'
+      - 'kit/vietmap-cluster/**'
+      - 'apps/vietmap_cluster/**'
       - 'kit/tools/test_zf8hp.js'
       - 'kit/tools/test_live_adjustments.js'
       - 'kit/tools/test_diag_options.js'
@@ -32,6 +35,9 @@ on:
       - 'kit/tools/test_live_data.js'
       - 'kit/tools/test_bm3_protocol.js'
       - 'kit/tools/test_bm3_marker_search.js'
+      - 'kit/tools/test_vietmap_cluster.js'
+      - 'kit/vietmap-cluster/**'
+      - 'apps/vietmap_cluster/**'
       - 'kit/tools/test_zf8hp.js'
       - 'kit/tools/test_live_adjustments.js'
       - 'kit/tools/test_diag_options.js'
@@ -51,6 +57,7 @@ jobs:
           node-version: '22'
       - run: node kit/tools/test_bm3_protocol.js
       - run: node kit/tools/test_bm3_marker_search.js
+      - run: node kit/tools/test_vietmap_cluster.js
       - run: node kit/tools/test_zf8hp.js
       - run: node kit/tools/test_live_adjustments.js
       - run: node kit/tools/test_diag_options.js
