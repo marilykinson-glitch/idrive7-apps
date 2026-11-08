@@ -37,7 +37,7 @@ const cp = require('child_process');
 const dgram = require('dgram');
 const zlib = require('zlib');
 
-const VERSION = '0.1.1';
+const VERSION = '0.1.2';
 const env = (k, d) => (process.env[k] !== undefined && process.env[k] !== '' ? process.env[k] : d);
 const CFG = {
     oap: env('VMS_OAP', '/var/opt/public/oap'),
@@ -62,6 +62,9 @@ const STATUS_FILE = () => path.join(CFG.run, 'status.json');
 // cluster-render's targets on iDrive 7 (its PROTOCOL.md hello): the map area and the HUD
 const MAP_W = 1088, MAP_H = 480, HUD_W = 800, HUD_H = 480;
 const SIZES = { small: { map: 96, hud: 64 }, medium: { map: 128, hud: 80 }, large: { map: 160, hud: 100 } };
+// what the HUD shows of its 800x480: Waze on cluster's widest map, 85 % (680x300), centred, is
+// the most that is not cut off at the HUD's edges
+const HUD_SEEN = { x: 60, y: 90, w: 680, h: 300 };
 // the map area fades out towards its edges (the KOMBI's vignette): the sign stays inside it
 const MAP_EDGE_X = 200, MAP_TOP = 36;
 
@@ -253,7 +256,14 @@ function geometry(d, woc) {
     const s = SIZES[d.size];
     const map = { size: s.map, y: MAP_TOP, x: d.side === 'left' ? MAP_EDGE_X : MAP_W - MAP_EDGE_X - s.map };
     const b = (woc && woc.hudBox) || { x: 173, y: 140, w: 453, h: 200 };
-    const hud = { size: s.hud, y: b.y + 8, x: d.side === 'left' ? b.x + 8 : b.x + b.w - s.hud - 8 };
+    // the part of Waze on cluster's HUD map the HUD really shows (seen on the car: a sign at the box's
+    // right edge, moved right, was cut off), the sign in its corner
+    let x0 = Math.max(b.x, HUD_SEEN.x), y0 = Math.max(b.y, HUD_SEEN.y);
+    let x1 = Math.min(b.x + b.w, HUD_SEEN.x + HUD_SEEN.w), y1 = Math.min(b.y + b.h, HUD_SEEN.y + HUD_SEEN.h);
+    if (x1 - x0 < s.hud + 16 || y1 - y0 < s.hud + 16) {
+        x0 = HUD_SEEN.x; y0 = HUD_SEEN.y; x1 = HUD_SEEN.x + HUD_SEEN.w; y1 = HUD_SEEN.y + HUD_SEEN.h;
+    }
+    const hud = { size: s.hud, y: y0 + 8, x: d.side === 'left' ? x0 + 8 : x1 - s.hud - 8 };
     hud.x = Math.max(0, Math.min(HUD_W - s.hud, hud.x));
     hud.y = Math.max(0, Math.min(HUD_H - s.hud, hud.y));
     return { map, hud };

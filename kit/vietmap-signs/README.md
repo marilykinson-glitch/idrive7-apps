@@ -20,7 +20,7 @@ accepts the port, tagged `vietmap-signs`, checked every 30 s, removed at a stop 
 
 **The sign.** An image layer of cluster-render (`/var/opt/cluster-render/current/cluster_render_client.js`,
 socket `/dev/shm/cluster-render/render.sock`), class `overlay`, on target `map` (1088x480; 200 px in from
-the side, 36 down, inside the map area's fade) and on `hud` (inside Waze on cluster's HUD box), each
+the side, 36 down, inside the map area's fade) and on `hud` (inside Waze on cluster's HUD box, and inside the 680x300 the HUD shows of its 800x480), each
 visible only while `/run/waze-on-cluster/status.json` says Waze on cluster shows its map there, so the
 sign never asks the cluster for a slot of its own. `guide_hold` follows Waze on cluster's "Hide BMW's
 turn". Sizes 96/128/160 on the cluster, 64/80/100 on the HUD.

@@ -139,13 +139,14 @@ function sendNoAnswer(msg) {
     assert.deepStrictEqual(g.hud, { size: 100, x: 138, y: 107 });
     g = vms.geometry(Object.assign({}, d, { side: 'right', size: 'medium' }), vms.wocStatus(Date.now()));
     assert.deepStrictEqual(g.map, { size: 128, x: 1088 - 200 - 128, y: 36 });
-    assert.deepStrictEqual(g.hud, { size: 80, x: 130 + 640 - 80 - 8, y: 107 });
+    // the box reaches 770, the HUD shows up to 740: the sign stays inside what it shows
+    assert.deepStrictEqual(g.hud, { size: 80, x: 740 - 80 - 8, y: 107 });
     woc({ hud_width_pct: 0 });
     g = vms.geometry(Object.assign({}, d, { side: 'right', size: 'medium' }), vms.wocStatus(Date.now()));
     assert.deepStrictEqual(g.hud, { size: 80, x: 173 + 50 + 453 - 80 - 8, y: 140 + 8 });
     woc({ hud_width_pct: 85, hud_x: -800, hud_y: 900 });
     g = vms.geometry(Object.assign({}, d, { side: 'left', size: 'medium' }), vms.wocStatus(Date.now()));
-    assert.deepStrictEqual(g.hud, { size: 80, x: 8, y: 480 - 300 + 8 }, 'held inside the HUD');
+    assert.deepStrictEqual(g.hud, { size: 80, x: 68, y: 188 }, 'held inside what the HUD shows');
 
     // --- the firewall: one rule per interface at the top, put back after a reload, removed ---
     vms.ensureRules(Date.now());
@@ -181,7 +182,7 @@ function sendNoAnswer(msg) {
     assert.deepStrictEqual(a.shown.sort(), ['hud', 'map']);
     const imgs = calls('image').map((c) => c[1]);
     assert.deepStrictEqual(imgs.map((o) => [o.target, o.klass, o.w, o.iw, o.x, o.y, o.visible, o.guide_hold, o.contend]),
-        [['map', 'overlay', 128, 128, 760, 36, false, 1, false], ['hud', 'overlay', 80, 80, 682, 107, false, 1, false]]);
+        [['map', 'overlay', 128, 128, 760, 36, false, 1, false], ['hud', 'overlay', 80, 80, 652, 107, false, 1, false]]);
     assert.deepStrictEqual(calls('pixels').map((c) => c[2]), [128 * 128 * 4, 80 * 80 * 4]);
     assert(calls('set').some((c) => c[1] === 1 && c[2].visible === true), 'map layer shown');
     let st = status();
