@@ -2,6 +2,7 @@ package io.github.idrive7apps.vmsign;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.net.Uri;
@@ -18,6 +19,7 @@ import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.CompoundButton;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -32,6 +34,8 @@ import java.util.Locale;
 public class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private TextView a11y, notif, battery, sign, signSrc, car, link, pkgs, diag;
+    private ImageView shotWindow, shotScreen;
+    private Bitmap shownWindow, shownScreen;
     private Button a11yBtn, notifBtn, batteryBtn;
     private LinearLayout itemsBox;
     private String itemsSig = "";
@@ -160,6 +164,16 @@ public class MainActivity extends Activity {
         root.addView(pkgs);
         diag = text("", 12, false, DIM);
         root.addView(diag);
+        root.addView(text("Ảnh cửa sổ VietMap app chụp được:", 12, false, DIM));
+        shotWindow = new ImageView(this);
+        shotWindow.setAdjustViewBounds(true);
+        shotWindow.setBackgroundColor(Color.parseColor("#404040"));
+        root.addView(shotWindow);
+        root.addView(text("Ảnh màn hình cắt theo cửa sổ VietMap:", 12, false, DIM));
+        shotScreen = new ImageView(this);
+        shotScreen.setAdjustViewBounds(true);
+        shotScreen.setBackgroundColor(Color.parseColor("#404040"));
+        root.addView(shotScreen);
     }
 
     @Override
@@ -262,7 +276,11 @@ public class MainActivity extends Activity {
 
     private void renderDiag() {
         String w = Engine.windowsNote, o = Engine.ocrNote;
-        diag.setText((w.length() > 0 ? w : "Chưa thấy cửa sổ VietMap") + (o.length() > 0 ? "\n" + o : ""));
+        String o2 = Engine.ocrNote2;
+        diag.setText((w.length() > 0 ? w : "Chưa thấy cửa sổ VietMap") + (o.length() > 0 ? "\n" + o : "") + (o2.length() > 0 ? "\n" + o2 : ""));
+        Bitmap a = Engine.windowShot, b = Engine.screenShot;
+        if (a != shownWindow) { shownWindow = a; shotWindow.setImageBitmap(a); }
+        if (b != shownScreen) { shownScreen = b; shotScreen.setImageBitmap(b); }
     }
 
     private boolean enabled(String setting) {

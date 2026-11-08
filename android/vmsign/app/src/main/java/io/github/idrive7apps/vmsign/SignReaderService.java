@@ -154,8 +154,10 @@ public class SignReaderService extends AccessibilityService {
         Set<Integer> ids = new LinkedHashSet<>();
         for (int[] w : vietmap) ids.add(w[0]);
         synchronized (shots) {
-            shots.keySet().retainAll(ids);
-            for (Map.Entry<Integer, Shot> e : shots.entrySet()) {
+            java.util.Iterator<Map.Entry<Integer, Shot>> it = shots.entrySet().iterator();
+            while (it.hasNext()) {
+                Map.Entry<Integer, Shot> e = it.next();
+                if (!ids.contains(e.getKey() / 2)) { it.remove(); continue; }
                 if (now - e.getValue().at < 4000) all.addAll(e.getValue().rings);
             }
         }
@@ -171,7 +173,10 @@ public class SignReaderService extends AccessibilityService {
         return out;
     }
 
-    /** One picture: the next VietMap window (Android 14+), or the screen (11 to 13). */
+    /**
+     * One picture, the two ways in turn: the next VietMap window alone (Android 14+), and the screen
+     * cut to VietMap's windows (Android 11+). Whichever finds the sign counts.
+     */
     private void shoot(List<int[]> vietmap) {
         long now = SystemClock.uptimeMillis();
         if (shooting || now - shotAt < 700 || Build.VERSION.SDK_INT < 30) {
@@ -180,17 +185,23 @@ public class SignReaderService extends AccessibilityService {
         }
         shooting = true;
         shotAt = now;
+        boolean windowTurn = Build.VERSION.SDK_INT >= 34 && (turn++ % 2 == 0);
         try {
-            if (Build.VERSION.SDK_INT >= 34) {
-                final int[] w = vietmap.get(turn++ % vietmap.size());
+            if (windowTurn) {
+                final int[] w = vietmap.get((turn / 2) % vietmap.size());
                 takeScreenshotOfWindow(w[0], ocrThread, callback(java.util.Collections.singletonList(w), true));
             } else {
                 takeScreenshot(Display.DEFAULT_DISPLAY, ocrThread, callback(vietmap, false));
             }
         } catch (RuntimeException e) {
             shooting = false;
-            Engine.ocrNote = "Không chụp được: " + e.getMessage();
+            setNote(windowTurn, "không chụp được: " + e.getMessage());
         }
+    }
+
+    private static void setNote(boolean windowOnly, String note) {
+        if (windowOnly) Engine.ocrNote = "Chụp cửa sổ: " + note;
+        else Engine.ocrNote2 = "Chụp màn hình: " + note;
     }
 
     private TakeScreenshotCallback callback(final List<int[]> wins, final boolean windowOnly) {
@@ -201,7 +212,7 @@ public class SignReaderService extends AccessibilityService {
                     Bitmap hw = Bitmap.wrapHardwareBuffer(hb, result.getColorSpace());
                     Bitmap pic = hw == null ? null : hw.copy(Bitmap.Config.ARGB_8888, false);
                     hb.close();
-                    if (pic == null) { done("Ảnh chụp rỗng"); return; }
+                    if (pic == null) { done(windowOnly, "ảnh rỗng"); return; }
                     StringBuilder sb = new StringBuilder();
                     for (int[] w : wins) {
                         Bitmap part = pic;
@@ -211,30 +222,31 @@ public class SignReaderService extends AccessibilityService {
                             part = Bitmap.createBitmap(pic, r.left, r.top, r.width(), r.height());
                         }
                         List<SignOcr.Ring> rings = SignOcr.read(part);
-                        synchronized (shots) { shots.put(w[0], new Shot(SystemClock.uptimeMillis(), rings)); }
+                        synchronized (shots) { shots.put(w[0] * 2 + (windowOnly ? 0 : 1), new Shot(SystemClock.uptimeMillis(), rings)); }
+                        if (windowOnly) Engine.windowShot = SignOcr.thumbnail(part); else Engine.screenShot = SignOcr.thumbnail(part);
                         if (sb.length() > 0) sb.append(" · ");
                         sb.append("#").append(w[0]).append(' ').append(part.getWidth()).append('x').append(part.getHeight())
-                                .append(": ").append(rings.size()).append(" vòng đỏ");
+                                .append(", ").append(SignOcr.stats(part)).append(": ").append(rings.size()).append(" vòng đỏ");
                         for (SignOcr.Ring r : rings) sb.append(r.number > 0 ? " [" + r.number + "]" : " [?" + r.text.replace('\n', ' ') + "]");
                     }
-                    done("Đọc hình " + sb);
+                    done(windowOnly, sb.length() > 0 ? sb.toString() : "cửa sổ nằm ngoài màn hình");
                 } catch (RuntimeException e) {
-                    done("Lỗi đọc hình: " + e.getMessage());
+                    done(windowOnly, "lỗi đọc hình: " + e.getMessage());
                 }
             }
 
             @Override public void onFailure(int errorCode) {
-                done(errorCode == ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT ? null : "Không chụp được (mã " + errorCode + ")");
+                done(windowOnly, errorCode == ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT ? null : "không chụp được (mã " + errorCode + ")");
             }
         };
     }
 
     /** On the main thread: the next picture may go, and what was read counts at once. */
-    private void done(final String note) {
+    private void done(final boolean windowOnly, final String note) {
         handler.post(new Runnable() {
             @Override public void run() {
                 shooting = false;
-                if (note != null) Engine.ocrNote = note;
+                if (note != null) setNote(windowOnly, note);
                 if (!scanQueued) { scanQueued = true; handler.post(soon); }
             }
         });

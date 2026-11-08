@@ -64,7 +64,7 @@ final class SignOcr {
         for (int i = 0; i < px.length; i++) {
             int c = px[i];
             int a = c >>> 24, r = (c >> 16) & 255, g = (c >> 8) & 255, bl = c & 255;
-            red[i] = a > 128 && r >= 140 && r - g >= 60 && r - bl >= 50;
+            red[i] = isRed(a, r, g, bl);
         }
         boolean[] seen = new boolean[w * h];
         int[] stack = new int[w * h];
@@ -99,6 +99,39 @@ final class SignOcr {
             @Override public int compare(Rect a, Rect b2) { return b2.width() * b2.height() - a.width() * a.height(); }
         });
         return found;
+    }
+
+    static boolean isRed(int a, int r, int g, int b) {
+        return a > 64 && r >= 120 && r - g >= 50 && r - b >= 40;
+    }
+
+    /** For the screen: how much of the picture is red, and how much see-through. */
+    static String stats(Bitmap b) {
+        int w = b.getWidth(), h = b.getHeight();
+        int step = Math.max(1, (int) Math.sqrt((double) w * h / 40000));
+        int n = 0, red = 0, clear = 0;
+        long sr = 0, sg = 0, sb = 0;
+        for (int y = 0; y < h; y += step) {
+            for (int x = 0; x < w; x += step) {
+                int c = b.getPixel(x, y);
+                int a = c >>> 24, r = (c >> 16) & 255, g = (c >> 8) & 255, bl = c & 255;
+                n++;
+                if (a < 32) { clear++; continue; }
+                sr += r; sg += g; sb += bl;
+                if (isRed(a, r, g, bl)) red++;
+            }
+        }
+        int solid = Math.max(1, n - clear);
+        return "đỏ " + (100 * red / Math.max(1, n)) + "%, trong suốt " + (100 * clear / Math.max(1, n)) + "%, màu TB "
+                + (sr / solid) + "/" + (sg / solid) + "/" + (sb / solid);
+    }
+
+    /** A small copy for the screen. */
+    static Bitmap thumbnail(Bitmap b) {
+        int w = b.getWidth(), h = b.getHeight();
+        float k = Math.min(1f, 480f / Math.max(w, h));
+        return k >= 1f ? b.copy(Bitmap.Config.ARGB_8888, false)
+                : Bitmap.createScaledBitmap(b, Math.max(1, Math.round(w * k)), Math.max(1, Math.round(h * k)), true);
     }
 
     /** The disc inside the ring, black on white, scaled up for the recognizer, with a white margin. */
