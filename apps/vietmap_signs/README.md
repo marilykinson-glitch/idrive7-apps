@@ -10,6 +10,10 @@ Waze) navigates on Android Auto and Waze on cluster shows its map there.
      (android/vmsign, reads the number)         targets, over Waze on cluster's map
 ```
 
+- **The centre screen** (CarPlay): VietMap Live's CarPlay widget shows the sign beside Google Maps; the
+  helper photographs the centre screen once a second with BMW's own grabber and reads the sign in it, on
+  the car. No phone app then: the iPhone can stay locked in a pocket. Settings: "Read the sign on the
+  centre screen (CarPlay)".
 - **The phone app** ([android/vmsign](../../android/vmsign)) reads the number in VietMap Live's speed
   bubble with an accessibility service and sends it over the car's Wi-Fi (the car's own, which wireless
   Android Auto uses, or a phone hotspot the car is on) at each change and once a second.

@@ -292,5 +292,11 @@
   "DOWN": "XUỐNG",
   "LEFT": "TRÁI",
   "RIGHT": "PHẢI",
-  "DEFAULT PLACE": "VỀ CHỖ MẶC ĐỊNH"
+  "DEFAULT PLACE": "VỀ CHỖ MẶC ĐỊNH",
+  "Read the sign on the centre screen (CarPlay)": "Đọc biển trên màn giữa (CarPlay)",
+  "No sign on the centre screen now": "Màn giữa đang không có biển",
+  "The centre screen cannot be read": "Không đọc được màn giữa",
+  "sign": "biển",
+  "no sign": "không có biển",
+  "read while the map shows and the phone is quiet": "đọc khi có bản đồ và điện thoại không gửi"
 }

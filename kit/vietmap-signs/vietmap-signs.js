@@ -31,13 +31,15 @@
  * Inter Bold (OFL-Inter.txt).
  */
 const fs = require('fs');
+const jpeg = require('./jpeg');
+const signread = require('./signread');
 const os = require('os');
 const path = require('path');
 const cp = require('child_process');
 const dgram = require('dgram');
 const zlib = require('zlib');
 
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 const env = (k, d) => (process.env[k] !== undefined && process.env[k] !== '' ? process.env[k] : d);
 const CFG = {
     oap: env('VMS_OAP', '/var/opt/public/oap'),
@@ -54,6 +56,12 @@ const CFG = {
     wocStaleMs: Number(env('VMS_WOC_STALE_MS', 30000)),
     ruleMs: Number(env('VMS_RULE_MS', 30000)),
     loopback: env('VMS_LOOPBACK', '') === '1',     // tests: senders on 127.0.0.1 too
+    // the centre screen's pictures (CarPlay: VietMap Live's widget with the sign)
+    grabber: env('VMS_GRABBER', '/usr/bin/winston-grabber'),
+    wayland: env('VMS_XDG_RUNTIME_DIR', '/run/wayland'),
+    screenMs: Number(env('VMS_SCREEN_MS', 1000)),
+    screenGeometry: env('VMS_SCREEN_GEOMETRY', '960x360'),
+    screenStaleMs: Number(env('VMS_SCREEN_STALE_MS', 4000)),
 };
 const APP = /^vietmap_signs\d*$/;          // the app's id (the Store may install it as vietmap_signs2)
 const NFT_COMMENT = 'vietmap-signs';
@@ -190,7 +198,7 @@ function findApp(now) {
     return null;
 }
 
-const DEFAULTS = { mode: 'on', show: 'both', side: 'right', hudSide: 'left', size: 'medium', bmw: 'hide' };
+const DEFAULTS = { mode: 'on', show: 'both', side: 'right', hudSide: 'left', size: 'medium', bmw: 'hide', screen: 'on' };
 const POS_KEYS = ['mapX', 'mapY', 'hudX', 'hudY'];
 const PREVIEW_LIMIT = 60;
 /** The app's settings in effect: its defaults (app-spec.json) under what it saved (data/settings.json). */
@@ -214,6 +222,7 @@ function desired(now) {
         hudSide: values.hudSide === 'right' ? 'right' : 'left',
         size: SIZES[values.size] ? values.size : 'medium',
         bmw: values.bmw === 'show' ? 'show' : 'hide',
+        screen: values.screen !== 'off',
         mapPos: pos('mapX', 'mapY'),
         hudPos: pos('hudX', 'hudY'),
     };
@@ -419,13 +428,105 @@ function applyLayers(want) {
 let last = { shown: [], why: '', limit: null };
 let lastWrite = 0, lastKey = '';
 
+/* ---------------- the centre screen: the sign in a picture of it ---------------- */
+
+/**
+ * Once a second while it could show (the cluster or the HUD has Waze on cluster's map) and the phone
+ * says nothing, BMW's grabber writes one JPEG of the centre screen (CarPlay with VietMap Live's widget)
+ * and the sign in it is read (signread.js). A number counts once two pictures in a row agree; the
+ * sign goes after two without it, and 4 s after the last picture.
+ */
+const screen = { running: false, startedAt: 0, at: 0, limit: 0, candidate: 0, misses: 0, shots: 0, fails: 0,
+    ms: null, decodeMs: null, rings: [], error: null, geometry: CFG.screenGeometry, child: null };
+
+function screenFile() { return path.join(CFG.run, 'centre.jpg'); }
+
+function grabArgs() {
+    const a = ['--screen=center'];
+    if (screen.geometry) a.push('--geometry=' + screen.geometry);
+    return a.concat(['--num-frames=1', '-p', 'jpeg_msdk(num_frames=1),file', screenFile()]);
+}
+
+function shootScreen(now) {
+    screen.running = true;
+    screen.startedAt = now;
+    try { fs.unlinkSync(screenFile()); } catch (e) { /* none */ }
+    let child, done = false, tail = '';
+    const finish = (code, err) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        screen.child = null;
+        screen.running = false;
+        const t = Date.now();
+        screen.ms = t - now;
+        let img = null;
+        try {
+            if (err) throw err;
+            const buf = fs.readFileSync(screenFile());
+            const t0 = Date.now();
+            const r = signread.read(jpeg.decode(buf));
+            screen.decodeMs = Date.now() - t0;
+            screen.shots++;
+            screen.fails = 0;
+            screen.error = null;
+            screen.rings = r.rings.slice(0, 3);
+            screen.size = null;
+            img = r;
+        } catch (e) {
+            screen.fails++;
+            screen.error = String(e.message || e).slice(0, 160) + (code ? ' (exit ' + code + ')' : '') + (tail ? ': ' + tail.trim().split('\n').pop().slice(0, 120) : '');
+            // a grabber that will not scale: the whole screen from the next one
+            if (screen.fails >= 2 && screen.geometry) { log('screen: no picture at ' + screen.geometry + ', the screen\'s own size next'); screen.geometry = ''; }
+        }
+        if (img) {
+            const n = img.limit;
+            if (n && (n === screen.limit || n === screen.candidate)) {
+                if (n !== screen.limit) log('screen: sign ' + n);
+                screen.limit = n;
+                screen.candidate = 0;
+                screen.misses = 0;
+                screen.at = t;
+            } else if (n) {
+                screen.candidate = n;
+                if (screen.limit) screen.at = t;
+            } else {
+                screen.candidate = 0;
+                screen.misses++;
+                if (screen.misses >= 2) { if (screen.limit) log('screen: no sign'); screen.limit = 0; }
+                screen.at = t;
+            }
+        }
+        try { fs.unlinkSync(screenFile()); } catch (e) { /* none */ }
+    };
+    try {
+        child = cp.spawn(CFG.grabber, grabArgs(), { env: Object.assign({}, process.env, { XDG_RUNTIME_DIR: CFG.wayland }), stdio: ['ignore', 'ignore', 'pipe'] });
+    } catch (e) { finish(null, e); return; }
+    screen.child = child;
+    child.stderr.on('data', (d) => { tail = (tail + d).slice(-400); });
+    child.on('error', (e) => finish(null, e));
+    child.on('exit', (code) => finish(code, code ? new Error('grabber failed') : null));
+    const timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch (e) { /* gone */ } finish(null, new Error('grabber took over 5 s')); }, 5000);
+}
+
+/** The centre screen's sign now (0: none or not read), and whether it is being read. */
+function screenSign(now) {
+    const fresh = screen.at && now - screen.at < CFG.screenStaleMs;
+    return fresh ? screen.limit : 0;
+}
+
 function decide(now) {
     const d = desired(now);
     const woc = wocStatus(now);
     const fresh = phone.at && now - phone.at < CFG.phoneStaleMs;
     const placing = preview(now);
-    // while the sign is being placed, a sign shows whatever the phone says (VietMap's, or 60)
-    const limit = fresh && phone.limit ? phone.limit : placing ? PREVIEW_LIMIT : null;
+    // the centre screen is read while the phone says nothing and the sign could show
+    const reading = d.on && d.screen && !fresh && !placing && (woc.map || woc.hud) && renderer.installed !== false
+        && (fs.existsSync(CFG.grabber) || !path.isAbsolute(CFG.grabber));
+    if (reading && !screen.running && now - screen.startedAt >= CFG.screenMs) shootScreen(now);
+    const onScreen = reading ? screenSign(now) : 0;
+    // the phone's sign first, then the centre screen's; while it is being placed, 60 without either
+    const limit = fresh && phone.limit ? phone.limit : onScreen ? onScreen : placing ? PREVIEW_LIMIT : null;
     const bmw = bmwSign(now);
     const bmwShows = !!(bmw && bmw.fresh && bmw.valid && bmw.limit > 0);
     const suppress = d.bmw === 'hide' && bmwShows;
@@ -439,14 +540,15 @@ function decide(now) {
     else if (placing && !limit) why = '';
     else if (placing) why = !renderer.installed ? 'cluster-render is not installed' : !woc.known ? 'Waze on cluster is not installed'
         : !(wantMap && woc.map) && !(wantHud && woc.hud) ? 'Waze on cluster shows no map there' : '';
-    else if (!phone.at) why = 'no phone yet';
-    else if (!fresh) why = 'the phone stopped sending';
+    else if (reading && !limit) why = screen.error ? 'the centre screen cannot be read' : 'no sign on the centre screen';
+    else if (!phone.at && !reading) why = 'no phone yet';
+    else if (!fresh && !reading) why = 'the phone stopped sending';
     else if (!limit) why = 'no sign in VietMap';
     else if (suppress) why = 'BMW shows its own sign';
     else if (!renderer.installed) why = 'cluster-render is not installed';
     else if (!woc.known) why = 'Waze on cluster is not installed';
     else if (!(wantMap && woc.map) && !(wantHud && woc.hud)) why = 'Waze on cluster shows no map there';
-    return { d, woc, placing, bmw: bmw ? { limit: bmw.limit, valid: bmw.valid, fresh: bmw.fresh, suppress } : null, limit, map, hud, why };
+    return { d, woc, placing, reading, source: fresh && phone.limit ? 'phone' : onScreen ? 'screen' : placing ? 'preview' : null, bmw: bmw ? { limit: bmw.limit, valid: bmw.valid, fresh: bmw.fresh, suppress } : null, limit, map, hud, why };
 }
 
 function tick() {
@@ -456,7 +558,8 @@ function tick() {
     const s = decide(now);
     applyLayers({ limit: s.limit, map: s.map, hud: s.hud });
     last = { shown: ['map', 'hud'].filter((t) => s[t].visible), why: s.why, limit: s.limit };
-    const key = JSON.stringify([last, s.bmw, renderer, fw.error, s.d, s.placing, s.woc.map, s.woc.hud, phone.from, phone.bad, phone.ignored]);
+    const key = JSON.stringify([last, s.bmw, renderer, fw.error, s.d, s.placing, s.reading, s.woc.map, s.woc.hud, phone.from, phone.bad, phone.ignored,
+        screen.limit, screen.error, screen.shots]);
     if (key !== lastKey || now - lastWrite > 2000) { writeStatus(s, now); lastKey = key; lastWrite = now; }
     return s;
 }
@@ -474,6 +577,10 @@ function writeStatus(s, now) {
         renderer: { installed: renderer.installed, connected: renderer.connected, backend: renderer.backend, error: renderer.error,
             layers: renderer.layers, targets: renderer.targets },
         firewall: { present: fw.present, rules: fw.rules, error: fw.error },
+        source: s.source,
+        screen: { on: s.d.screen, reading: s.reading, limit: screen.limit, at: screen.at ? new Date(screen.at).toISOString() : null,
+            shots: screen.shots, ms: screen.ms, decode_ms: screen.decodeMs, rings: screen.rings, error: screen.error,
+            geometry: screen.geometry || 'full' },
     };
     try { writeAtomic(STATUS_FILE(), JSON.stringify(st, null, 1) + '\n', 0o644); } catch (e) { log('status: ' + e.message); }
 }

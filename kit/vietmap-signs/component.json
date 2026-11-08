@@ -1,7 +1,7 @@
 {
   "id": "vietmap-signs",
   "kind": "tool",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "title": "VietMap signs helper",
   "description": "Takes the speed-limit sign the VietMap signs phone app sends over the car's Wi-Fi (UDP 8471, one firewall rule per Wi-Fi interface while it runs) and draws it over Waze on cluster's map on the cluster and the HUD through cluster-render; patches nothing",
   "license": "MIT",
@@ -11,6 +11,9 @@
   "files": [
     { "path": "vietmap-signs.js", "mode": "0644" },
     { "path": "digits.json", "mode": "0644" },
+    { "path": "jpeg.js", "mode": "0644" },
+    { "path": "signread.js", "mode": "0644" },
+    { "path": "digit-templates.json", "mode": "0644" },
     { "path": "LICENSE", "mode": "0644" },
     { "path": "OFL-Inter.txt", "mode": "0644" }
   ],

@@ -9,6 +9,7 @@ cluster and the HUD. A tool in this repository's `mgu-repo.json`, installed by t
 | `vietmap-signs.js` | the service (`run`), the Store's removal hook (`deactivate`), `status`, `sign <n> <size>` (an RGBA dump) |
 | `vietmap-signs.service` | runs it as root, restarted on exit |
 | `digits.json` | the sign's digits, Inter Bold baked by `kit/tools/bake_sign_digits.py` (OFL-Inter.txt) |
+| `jpeg.js`, `signread.js`, `digit-templates.json` | the centre screen's sign: a baseline JPEG decoder, the ring and digit reader, its templates |
 | `component.json` | the tool for the deploy tool |
 
 **The phone.** UDP 8471, JSON: `{"t":"vms","v":1,"seq":12,"limit":60,"app":"vmsign 0.1.0"}` at each
@@ -24,6 +25,16 @@ the side, 36 down, inside the map area's fade) and on `hud` (inside Waze on clus
 visible only while `/run/waze-on-cluster/status.json` says Waze on cluster shows its map there, so the
 sign never asks the cluster for a slot of its own. `guide_hold` follows Waze on cluster's "Hide BMW's
 turn". Sizes 96/128/160 on the cluster, 64/80/100 on the HUD.
+
+**The centre screen** (CarPlay: VietMap Live's widget shows the sign beside Google Maps). While the
+sign could show (Waze on cluster's map on the cluster or the HUD), the phone says nothing and the app's
+"Read the sign on the centre screen" is on, once a second BMW's grabber writes one JPEG of the centre
+screen (`winston-grabber --screen=center --geometry=960x360 --num-frames=1 -p 'jpeg_msdk(num_frames=1),file'`,
+the screen's own size after two failures), `jpeg.js` decodes it (baseline, no dependencies) and
+`signread.js` finds the red rings and reads the digits in them against `digit-templates.json` (a few
+bold sans faces, baked by `kit/tools/bake_sign_templates.py`). Only 5-150 in steps of 5, each digit
+matched well, counts; a number shows once two pictures in a row agree, and goes after two without it.
+The picture is not kept. The phone's sign comes first.
 
 **BMW first.** The app writes BMW's displayed limit to its `data/bmw_sign.json` once a second while it
 runs; while that is fresh and valid and the app's setting is "BMW's sign only", the sign is hidden.

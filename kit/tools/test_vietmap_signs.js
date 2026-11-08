@@ -55,6 +55,7 @@ const PORT = 18000 + (process.pid % 2000);
 Object.assign(process.env, {
     VMS_OAP: D.oap, VMS_RUN: D.run, VMS_WOC_RUN: D.wocRun, VMS_NFT: path.join(D.bin, 'nft'), VMS_CR_CLIENT: FAKE_CR,
     VMS_PORT: String(PORT), VMS_LOOPBACK: '1', VMS_PHONE_STALE_MS: '600', VMS_RULE_MS: '100000000',
+    VMS_GRABBER: path.join(T, 'no-grabber-yet'), VMS_SCREEN_MS: '50', VMS_XDG_RUNTIME_DIR: '/run/wayland-test',
 });
 const vms = require('../vietmap-signs/vietmap-signs');
 const cr = require(FAKE_CR);
@@ -123,7 +124,7 @@ function sendNoAnswer(msg) {
 
     // --- settings: the defaults without the app, then the app's ---
     let d = vms.desired(Date.now());
-    assert.deepStrictEqual(d, { app: null, on: true, show: 'both', side: 'right', hudSide: 'left', size: 'medium', bmw: 'hide', mapPos: null, hudPos: null });
+    assert.deepStrictEqual(d, { app: null, on: true, show: 'both', side: 'right', hudSide: 'left', size: 'medium', bmw: 'hide', screen: true, mapPos: null, hudPos: null });
     vms._reset();
     const app = installApp(12301, 'vietmap_signs2');
     assert.strictEqual(vms.desired(Date.now()).app, 'vietmap_signs2');
@@ -287,6 +288,62 @@ function sendNoAnswer(msg) {
     s = vms.tick();
     assert.strictEqual(s.placing, false);
     assert.deepStrictEqual(vms._last().shown, [], 'the page closed: no sign without the phone');
+
+    // --- the centre screen (CarPlay): the sign read in BMW's grabber's picture ---
+    const FIX = path.join(__dirname, 'fixtures');
+    const GRAB_LOG = path.join(T, 'grabs.log'), WHICH = path.join(T, 'which');
+    const grabber = path.join(D.bin, 'winston-grabber');
+    fs.writeFileSync(grabber, '#!/bin/sh\necho "XDG=$XDG_RUNTIME_DIR $*" >> ' + GRAB_LOG + '\nfor a; do out="$a"; done\n' +
+        'w=$(cat ' + WHICH + ')\n[ "$w" = fail ] && { echo "grab: no picture" >&2; exit 3; }\ncp "$w" "$out"\n', { mode: 0o755 });
+    fs.writeFileSync(WHICH, path.join(FIX, 'centre-80.jpg'));
+    const grabs = () => (fs.existsSync(GRAB_LOG) ? fs.readFileSync(GRAB_LOG, 'utf8').trim().split('\n').filter(Boolean) : []);
+    const until = async (fn, what) => {
+        for (let i = 0; i < 60; i++) { vms.tick(); if (fn()) return; await sleep(60); }
+        throw new Error('never: ' + what + ' ' + JSON.stringify(vms._last()));
+    };
+    app.settings({});
+    app.bmw({ at: new Date(Date.now() - 60000).toISOString(), limit: 50, valid: true });
+    woc({ state: 'showing', cluster: 1, hud: 1, hud_state: 'showing' });
+    vms.CFG.grabber = grabber;
+    await until(() => vms._last().limit === 80, 'the centre screen\'s 80');
+    assert.deepStrictEqual(vms._last().shown.sort(), ['hud', 'map']);
+    st = status();
+    assert.strictEqual(st.source, 'screen');
+    assert.strictEqual(st.screen.limit, 80);
+    assert(st.screen.shots >= 2, 'two pictures agree first');
+    assert.strictEqual(grabs()[0], 'XDG=/run/wayland-test --screen=center --geometry=960x360 --num-frames=1 -p jpeg_msdk(num_frames=1),file ' + path.join(D.run, 'centre.jpg'));
+    assert(!fs.existsSync(path.join(D.run, 'centre.jpg')), 'the picture is not kept');
+    // the sign goes from the centre screen: gone after two pictures without it
+    fs.writeFileSync(WHICH, path.join(FIX, 'centre-none.jpg'));
+    await until(() => vms._last().limit === null, 'no sign');
+    assert.strictEqual(vms._last().why, 'no sign on the centre screen');
+    // the phone first: while it sends, no picture is taken
+    fs.writeFileSync(WHICH, path.join(FIX, 'centre-80.jpg'));
+    a = await send({ t: 'vms', v: 1, seq: 20, limit: 50 });
+    assert.strictEqual(vms._last().limit, 50);
+    const before = grabs().length;
+    await sleep(200);
+    vms.tick();
+    assert.strictEqual(grabs().length, before, 'no picture while the phone speaks');
+    assert.strictEqual(status().source, 'phone');
+    // off in the app's settings: no pictures
+    await sleep(700);
+    app.settings({ screen: 'off' });
+    vms.tick();
+    const n2 = grabs().length;
+    await sleep(200);
+    vms.tick();
+    assert.strictEqual(grabs().length, n2);
+    assert.strictEqual(vms.decide(Date.now()).reading, false);
+    // a grabber that cannot scale: the screen's own size after two failures
+    app.settings({});
+    fs.writeFileSync(WHICH, 'fail');
+    await until(() => /grabber failed/.test(status().screen.error || '') && status().screen.geometry === 'full', 'the full size');
+    assert.strictEqual(vms._last().why, 'the centre screen cannot be read');
+    fs.writeFileSync(WHICH, path.join(FIX, 'centre-80.jpg'));
+    const k = grabs().length;
+    await until(() => grabs().length > k + 1, 'another picture');
+    assert(!/--geometry/.test(grabs()[grabs().length - 1]), 'no --geometry now');
 
     console.log('vietmap-signs: all checks passed');
     process.exit(0);

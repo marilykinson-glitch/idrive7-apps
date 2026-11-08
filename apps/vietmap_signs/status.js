@@ -21,6 +21,8 @@ const WHY = {
     'no phone yet': 'Waiting for the phone app',
     'the phone stopped sending': 'The phone stopped sending',
     'no sign in VietMap': 'No sign in VietMap now',
+    'no sign on the centre screen': 'No sign on the centre screen now',
+    'the centre screen cannot be read': 'The centre screen cannot be read',
     'BMW shows its own sign': 'BMW shows its own sign',
     'cluster-render is not installed': 'Install Waze on cluster (with cluster-render) in the mgu Store',
     'Waze on cluster is not installed': 'Install Waze on cluster in the mgu Store',
@@ -59,9 +61,16 @@ function report(s, want, bmw) {
     }
     if (s.stale) lines.push({ text: 'Helper not answering', kind: 'warn' });
     else lines.push({ text: 'Helper running · ' + s.tool, kind: 'dim' });
-    const p = s.phone || {};
-    if (!p.at) lines.push({ text: 'Phone: not connected yet', kind: 'warn' });
-    else lines.push({ text: 'Phone: ' + p.from + ' · ' + ago(p.ago_ms), kind: p.ago_ms < 5000 ? 'go' : 'warn' });
+    const p = s.phone || {}, sc = s.screen || {};
+    if (p.at) lines.push({ text: 'Phone: ' + p.from + ' · ' + ago(p.ago_ms), kind: p.ago_ms < 5000 ? 'go' : 'warn' });
+    else if (!sc.on) lines.push({ text: 'Phone: not connected yet', kind: 'warn' });
+    if (sc.on) {
+        if (sc.reading) {
+            const rd = sc.error ? { text: 'Centre screen: ' + sc.error, kind: 'warn' }
+                : sc.limit ? { text: 'Centre screen: sign ' + sc.limit, kind: 'go' } : { text: 'Centre screen: no sign', kind: 'dim' };
+            lines.push(rd);
+        } else lines.push({ text: 'Centre screen: read while the map shows and the phone is quiet', kind: 'dim' });
+    }
     if (bmw && bmw.available === false) lines.push({ text: 'BMW sign: no signal', kind: 'dim' });
     else if (bmw && bmw.valid) lines.push({ text: 'BMW sign: ' + bmw.limit + ' km/h', kind: 'dim' });
     else if (bmw) lines.push({ text: 'BMW sign: none', kind: 'dim' });
