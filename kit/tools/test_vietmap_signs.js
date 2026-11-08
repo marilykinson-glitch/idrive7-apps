@@ -123,7 +123,7 @@ function sendNoAnswer(msg) {
 
     // --- settings: the defaults without the app, then the app's ---
     let d = vms.desired(Date.now());
-    assert.deepStrictEqual(d, { app: null, on: true, show: 'both', side: 'right', hudSide: 'left', size: 'medium', bmw: 'hide' });
+    assert.deepStrictEqual(d, { app: null, on: true, show: 'both', side: 'right', hudSide: 'left', size: 'medium', bmw: 'hide', mapPos: null, hudPos: null });
     vms._reset();
     const app = installApp(12301, 'vietmap_signs2');
     assert.strictEqual(vms.desired(Date.now()).app, 'vietmap_signs2');
@@ -254,6 +254,39 @@ function sendNoAnswer(msg) {
     fs.utimesSync(path.join(D.wocRun, 'status.json'), old, old);
     a = await send({ t: 'vms', v: 1, seq: 11, limit: 70 });
     assert.deepStrictEqual(a.shown, []);
+
+    // placed by hand on the app's Position page: that place, held inside the target
+    app.settings({ mapX: 500, mapY: 300, hudX: 760, hudY: -20 });
+    woc({ state: 'showing', cluster: 1, hud: 1, hud_state: 'showing' });
+    d = vms.desired(Date.now());
+    g = vms.geometry(d, vms.wocStatus(Date.now()));
+    assert.deepStrictEqual(g.map, { size: 128, x: 500, y: 300 });
+    assert.deepStrictEqual(g.hud, { size: 80, x: 720, y: 0 }, 'held inside the HUD');
+    // the Position page open: a sign to place without the phone (60), shown where it is put
+    const data = path.join(D.oap, 'oap_12301', 'data');
+    fs.writeFileSync(path.join(data, 'preview.json'), JSON.stringify({ at: new Date().toISOString() }));
+    await sleep(700);           // the phone's last word is old by now
+    let s = vms.tick();
+    assert.strictEqual(s.placing, true);
+    assert.strictEqual(s.limit, 60);
+    assert.deepStrictEqual(vms._last().shown.sort(), ['hud', 'map']);
+    assert(calls('set').some((c) => c[2].x === 500 && c[2].y === 300) || calls('image').some((c) => c[1].target === 'map' && c[1].x === 500 && c[1].y === 300),
+        'the map sign at its place');
+    st = status();
+    assert.deepStrictEqual([st.placing, st.geometry.map.placed, st.geometry.hud.x], [true, true, 720]);
+    // a step to the right: the same layer, moved
+    const images = calls('image').length;
+    app.settings({ mapX: 510, mapY: 300, hudX: 760, hudY: -20 });
+    vms.tick();
+    assert(calls('set').some((c) => c[2].x === 510 && c[2].y === 300), 'moved');
+    assert.strictEqual(calls('image').length, images, 'no new layer for a move');
+    // BMW's sign hides nothing while placing
+    app.bmw({ at: new Date().toISOString(), limit: 50, valid: true });
+    assert.deepStrictEqual(vms.tick().map.visible, true);
+    fs.writeFileSync(path.join(data, 'preview.json'), JSON.stringify({ at: new Date(Date.now() - 10000).toISOString() }));
+    s = vms.tick();
+    assert.strictEqual(s.placing, false);
+    assert.deepStrictEqual(vms._last().shown, [], 'the page closed: no sign without the phone');
 
     console.log('vietmap-signs: all checks passed');
     process.exit(0);

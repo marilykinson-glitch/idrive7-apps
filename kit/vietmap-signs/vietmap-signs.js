@@ -37,7 +37,7 @@ const cp = require('child_process');
 const dgram = require('dgram');
 const zlib = require('zlib');
 
-const VERSION = '0.1.3';
+const VERSION = '0.2.0';
 const env = (k, d) => (process.env[k] !== undefined && process.env[k] !== '' ? process.env[k] : d);
 const CFG = {
     oap: env('VMS_OAP', '/var/opt/public/oap'),
@@ -191,6 +191,8 @@ function findApp(now) {
 }
 
 const DEFAULTS = { mode: 'on', show: 'both', side: 'right', hudSide: 'left', size: 'medium', bmw: 'hide' };
+const POS_KEYS = ['mapX', 'mapY', 'hudX', 'hudY'];
+const PREVIEW_LIMIT = 60;
 /** The app's settings in effect: its defaults (app-spec.json) under what it saved (data/settings.json). */
 function desired(now) {
     const app = findApp(now);
@@ -200,7 +202,10 @@ function desired(now) {
         (spec.settings || []).forEach((s) => { if (s.key in DEFAULTS) values[s.key] = s.default; });
         const saved = readJson(path.join(app.root, 'data', 'settings.json')) || {};
         Object.keys(DEFAULTS).forEach((k) => { if (saved[k] !== undefined) values[k] = saved[k]; });
+        // where the user put the sign on the app's Position page (its top-left, in the target's pixels)
+        POS_KEYS.forEach((k) => { if (Number.isFinite(saved[k])) values[k] = Math.round(saved[k]); });
     }
+    const pos = (x, y) => (Number.isFinite(values[x]) && Number.isFinite(values[y]) ? { x: values[x], y: values[y] } : null);
     return {
         app: app ? app.id : null,
         on: values.mode !== 'off',
@@ -209,7 +214,19 @@ function desired(now) {
         hudSide: values.hudSide === 'right' ? 'right' : 'left',
         size: SIZES[values.size] ? values.size : 'medium',
         bmw: values.bmw === 'show' ? 'show' : 'hide',
+        mapPos: pos('mapX', 'mapY'),
+        hudPos: pos('hudX', 'hudY'),
     };
+}
+
+/** The app's Position page is open (it writes data/preview.json every second): a sign to place. */
+function preview(now) {
+    const app = findApp(now);
+    if (!app) return false;
+    const f = path.join(app.root, 'data', 'preview.json');
+    const p = readJson(f);
+    const at = p ? Date.parse(p.at) || mtime(f) : 0;
+    return !!at && now - at < 4000 && now >= at - 5000;
 }
 
 /** BMW's own displayed speed limit, as the app last wrote it (only while the app runs). */
@@ -265,6 +282,10 @@ function geometry(d, woc) {
         x0 = HUD_SEEN.x; y0 = HUD_SEEN.y; x1 = HUD_SEEN.x + HUD_SEEN.w; y1 = HUD_SEEN.y + HUD_SEEN.h;
     }
     const hud = { size: s.hud, y: y0 + 8, x: d.hudSide === 'right' ? x1 - s.hud - 8 : x0 + 8 };
+    if (d.mapPos) { map.x = d.mapPos.x; map.y = d.mapPos.y; }
+    if (d.hudPos) { hud.x = d.hudPos.x; hud.y = d.hudPos.y; }
+    map.x = Math.max(0, Math.min(MAP_W - s.map, map.x));
+    map.y = Math.max(0, Math.min(MAP_H - s.map, map.y));
     hud.x = Math.max(0, Math.min(HUD_W - s.hud, hud.x));
     hud.y = Math.max(0, Math.min(HUD_H - s.hud, hud.y));
     return { map, hud };
@@ -402,17 +423,22 @@ function decide(now) {
     const d = desired(now);
     const woc = wocStatus(now);
     const fresh = phone.at && now - phone.at < CFG.phoneStaleMs;
-    const limit = fresh ? phone.limit : null;
+    const placing = preview(now);
+    // while the sign is being placed, a sign shows whatever the phone says (VietMap's, or 60)
+    const limit = fresh && phone.limit ? phone.limit : placing ? PREVIEW_LIMIT : null;
     const bmw = bmwSign(now);
     const bmwShows = !!(bmw && bmw.fresh && bmw.valid && bmw.limit > 0);
     const suppress = d.bmw === 'hide' && bmwShows;
     const g = geometry(d, woc);
     const wantMap = d.on && d.show !== 'hud', wantHud = d.on && d.show !== 'cluster';
-    const showOk = renderer.installed !== false && !!limit && !suppress;
+    const showOk = renderer.installed !== false && !!limit && (!suppress || placing);
     const map = Object.assign({ visible: showOk && wantMap && woc.map, guide: woc.guideHold === 0 ? 0 : 1 }, g.map);
     const hud = Object.assign({ visible: showOk && wantHud && woc.hud, guide: woc.guideHold === 0 ? 0 : 1 }, g.hud);
     let why = '';
     if (!d.on) why = 'off in the app';
+    else if (placing && !limit) why = '';
+    else if (placing) why = !renderer.installed ? 'cluster-render is not installed' : !woc.known ? 'Waze on cluster is not installed'
+        : !(wantMap && woc.map) && !(wantHud && woc.hud) ? 'Waze on cluster shows no map there' : '';
     else if (!phone.at) why = 'no phone yet';
     else if (!fresh) why = 'the phone stopped sending';
     else if (!limit) why = 'no sign in VietMap';
@@ -420,7 +446,7 @@ function decide(now) {
     else if (!renderer.installed) why = 'cluster-render is not installed';
     else if (!woc.known) why = 'Waze on cluster is not installed';
     else if (!(wantMap && woc.map) && !(wantHud && woc.hud)) why = 'Waze on cluster shows no map there';
-    return { d, woc, bmw: bmw ? { limit: bmw.limit, valid: bmw.valid, fresh: bmw.fresh, suppress } : null, limit, map, hud, why };
+    return { d, woc, placing, bmw: bmw ? { limit: bmw.limit, valid: bmw.valid, fresh: bmw.fresh, suppress } : null, limit, map, hud, why };
 }
 
 function tick() {
@@ -430,7 +456,7 @@ function tick() {
     const s = decide(now);
     applyLayers({ limit: s.limit, map: s.map, hud: s.hud });
     last = { shown: ['map', 'hud'].filter((t) => s[t].visible), why: s.why, limit: s.limit };
-    const key = JSON.stringify([last, s.bmw, renderer, fw.error, s.d, s.woc.map, s.woc.hud, phone.from, phone.bad, phone.ignored]);
+    const key = JSON.stringify([last, s.bmw, renderer, fw.error, s.d, s.placing, s.woc.map, s.woc.hud, phone.from, phone.bad, phone.ignored]);
     if (key !== lastKey || now - lastWrite > 2000) { writeStatus(s, now); lastKey = key; lastWrite = now; }
     return s;
 }
@@ -441,7 +467,10 @@ function writeStatus(s, now) {
         phone: { from: phone.from, at: phone.at ? new Date(phone.at).toISOString() : null, ago_ms: phone.at ? now - phone.at : null,
             seq: phone.seq, limit: phone.limit, test: phone.test, app: phone.ver, packets: phone.packets, ignored: phone.ignored, bad: phone.bad },
         limit: s.limit, shown: last.shown, why: s.why, bmw: s.bmw,
-        waze: { known: s.woc.known, fresh: s.woc.fresh, state: s.woc.state || null, map: s.woc.map, hud: s.woc.hud },
+        waze: { known: s.woc.known, fresh: s.woc.fresh, state: s.woc.state || null, map: s.woc.map, hud: s.woc.hud, hudBox: s.woc.hudBox || null },
+        placing: s.placing,
+        geometry: { map: { x: s.map.x, y: s.map.y, size: s.map.size, w: MAP_W, h: MAP_H, placed: !!s.d.mapPos },
+            hud: { x: s.hud.x, y: s.hud.y, size: s.hud.size, w: HUD_W, h: HUD_H, placed: !!s.d.hudPos, seen: HUD_SEEN } },
         renderer: { installed: renderer.installed, connected: renderer.connected, backend: renderer.backend, error: renderer.error,
             layers: renderer.layers, targets: renderer.targets },
         firewall: { present: fw.present, rules: fw.rules, error: fw.error },

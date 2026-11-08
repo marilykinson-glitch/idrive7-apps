@@ -26,6 +26,22 @@ mgu.run({
         const { ui, settings, log } = ctx;
         const shows = settings.item('show').options;
         const set = (k, v) => { if (settings.get(k) !== v) { settings.set(k, v); log.info(k + ': ' + v); } repaint(); };
+        // --- the Position page: the sign placed by hand on the cluster and the HUD ---
+        let page = 0;                       // 0: the sign, 1: Position
+        let editing = 'map';                // which target the buttons move
+        let status = null;
+        const keys = (t) => (t === 'map' ? ['mapX', 'mapY'] : ['hudX', 'hudY']);
+        const place = (t, x, y) => {
+            const g = UI.geometry(status, settings, t);
+            x = Math.round(Math.max(0, Math.min(g.w - g.size, x)));
+            y = Math.round(Math.max(0, Math.min(g.h - g.size, y)));
+            const k = keys(t);
+            if (settings.get(k[0]) !== x) settings.set(k[0], x);
+            if (settings.get(k[1]) !== y) settings.set(k[1], y);
+            log.info('sign on ' + t + ' at ' + x + ',' + y);
+            repaint();
+        };
+        const step = (dx, dy) => { const g = UI.geometry(status, settings, editing); place(editing, g.x + dx, g.y + dy); };
         const acts = {
             on: () => set('mode', 'on'),
             off: () => set('mode', 'off'),
@@ -33,6 +49,30 @@ mgu.run({
                 const keys = shows.map((o) => o[0]);
                 set('show', keys[(keys.indexOf(settings.get('show')) + 1) % keys.length]);
             },
+            editing: () => { editing = editing === 'map' ? 'hud' : 'map'; repaint(); },
+            left: () => step(-UI.STEP, 0),
+            right: () => step(UI.STEP, 0),
+            up: () => step(0, -UI.STEP),
+            down: () => step(0, UI.STEP),
+            reset: () => { keys(editing).forEach((k) => settings.set(k, null)); log.info('sign on ' + editing + ': default place'); repaint(); },
+        };
+        ctx.onTab((i) => { page = i; repaint(); });
+        // a tap on a picture of the cluster or the HUD: the sign's middle goes there
+        ctx.onTap((x, y) => {
+            if (page !== 1) return;
+            const hit = UI.hit(x, y);
+            if (!hit) return;
+            editing = hit.target;
+            const g = UI.geometry(status, settings, hit.target);
+            place(hit.target, hit.x - g.size / 2, hit.y - g.size / 2);
+        });
+        // while the Position page shows, the helper shows a sign to place (data/preview.json, every second)
+        const previewFile = path.join(ctx.dataDir, 'preview.json');
+        let previewAt = 0;
+        const previewTick = () => {
+            if (page !== 1 || Date.now() - previewAt < 1000) return;
+            previewAt = Date.now();
+            try { fs.writeFileSync(previewFile, JSON.stringify({ at: new Date().toISOString() })); } catch (e) { /* the next one */ }
         };
 
         // --- BMW's own sign, for the helper ---
@@ -57,8 +97,11 @@ mgu.run({
         const render = async () => {
             const want = { on: settings.get('mode') !== 'off', show: settings.get('show') };
             const b = bmwSub ? Object.assign({ available: !!bmwSub.available }, bmw || { valid: false }) : null;
-            const r = report(readStatus(), want, b);
-            const v = Object.assign({ on: want.on, show: want.show, shows }, r);
+            status = readStatus();
+            previewTick();
+            const r = report(status, want, b);
+            const v = Object.assign({ on: want.on, show: want.show, shows, page, editing, status,
+                map: UI.geometry(status, settings, 'map'), hud: UI.geometry(status, settings, 'hud') }, r);
             const cv = ctx.canvas(UI.W, UI.H) || new Canvas(UI.W, UI.H);
             UI.draw(cv, G, ctx.theme(), v, acts);
             await ui.image('MAIN_GFX', cv);

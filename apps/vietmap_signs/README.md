@@ -20,6 +20,13 @@ Waze) navigates on Android Auto and Waze on cluster shows its map there.
   position, its size, and what happens while BMW shows its own sign: BMW's sign only (the default) or
   VietMap's too. For that it reads BMW's displayed speed limit (SOME/IP TrafficSignDisplayControl)
   while it runs and writes it to its `data/bmw_sign.json` once a second; the screen shows it.
+- **Position** (the second tab): pictures of the cluster's map area and of the HUD (what it shows of its
+  800x480 shaded, Waze on cluster's HUD map outlined) with the sign on each. A tap on a picture puts the
+  sign's middle there; Up, Down, Left, Right move the one being edited 10 px; Default place puts it back.
+  While this page shows, the sign shows on the cluster and the HUD even without the phone (60), so it can
+  be placed while parked (Waze on cluster has to show its map). Saved as `mapX`, `mapY`, `hudX`, `hudY`
+  (the sign's top-left in the target's pixels) in the app's settings; the page writes `data/preview.json`
+  every second while it shows.
 - English or Tiếng Việt in Settings (built with `--language vi --language-setting`).
 
 **Install.** From this repository in the mgu Store; the helper installs with it. Waze on cluster (from

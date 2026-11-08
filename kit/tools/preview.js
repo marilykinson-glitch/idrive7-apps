@@ -6,7 +6,7 @@
  *   node kit/tools/preview.js dist/car_vitals [outDir] [clicks...] [--set key=value ...] [--gpu FILE]
  *
  * clicks = component names to "press" between frames, e.g. BTN_PAGE BTN_PAGE;
- * also wait=<seconds>, render (draw a frame now) and frames=<n> (n frames at 60 a second, in
+ * also tab=<n> (page tab n), tap=<x>,<y> (a tap on the page), wait=<seconds>, render (draw a frame now) and frames=<n> (n frames at 60 a second, in
  * real time, so demo data and animations move as on the car: with --gpu and mgu-renderd --raw
  * that is a 60 fps video).
  * Demo data is forced on. Each image the app pushes is written as
@@ -63,6 +63,16 @@ setTimeout(async () => {
         // wait=<seconds> pauses (demo data keeps running); render forces a frame
         if (/^wait=/.test(c)) { await new Promise((r) => setTimeout(r, Number(c.slice(5)) * 1000)); continue; }
         if (c === 'render') { await loopFn(); await renderWidgets(); continue; }
+        // tab=<n>: the page tab n, as tapped; tap=<x>,<y>: a tap on the page (app drawing px)
+        if (/^tab=\d+$/.test(c) || /^tap=\d+,\d+$/.test(c)) {
+            const d = hu.display;
+            const fn = d && (c[1] === 'a' && c[2] === 'b' ? d.onTab : d.onTap);
+            if (!fn) { console.warn('no handler', c); continue; }
+            const a = c.slice(4).split(',').map(Number);
+            await fn.apply(d, a);
+            await new Promise((r) => setTimeout(r, 300));
+            continue;
+        }
         if (/^frames=/.test(c)) {
             const n = Number(c.slice(7)), t0 = Date.now();
             for (let i = 0; i < n; i++) {
