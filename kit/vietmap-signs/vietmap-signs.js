@@ -37,7 +37,7 @@ const cp = require('child_process');
 const dgram = require('dgram');
 const zlib = require('zlib');
 
-const VERSION = '0.1.2';
+const VERSION = '0.1.3';
 const env = (k, d) => (process.env[k] !== undefined && process.env[k] !== '' ? process.env[k] : d);
 const CFG = {
     oap: env('VMS_OAP', '/var/opt/public/oap'),
@@ -62,9 +62,9 @@ const STATUS_FILE = () => path.join(CFG.run, 'status.json');
 // cluster-render's targets on iDrive 7 (its PROTOCOL.md hello): the map area and the HUD
 const MAP_W = 1088, MAP_H = 480, HUD_W = 800, HUD_H = 480;
 const SIZES = { small: { map: 96, hud: 64 }, medium: { map: 128, hud: 80 }, large: { map: 160, hud: 100 } };
-// what the HUD shows of its 800x480: Waze on cluster's widest map, 85 % (680x300), centred, is
-// the most that is not cut off at the HUD's edges
-const HUD_SEEN = { x: 60, y: 90, w: 680, h: 300 };
+// what the HUD shows of its 800x480, with room to spare: Waze on cluster's widest map, 85 % (680x300),
+// centred, is said to be the most not cut off at its edges, and a sign reaching x 740 was cut on the car
+const HUD_SEEN = { x: 80, y: 90, w: 640, h: 300 };
 // the map area fades out towards its edges (the KOMBI's vignette): the sign stays inside it
 const MAP_EDGE_X = 200, MAP_TOP = 36;
 
@@ -190,7 +190,7 @@ function findApp(now) {
     return null;
 }
 
-const DEFAULTS = { mode: 'on', show: 'both', side: 'right', size: 'medium', bmw: 'hide' };
+const DEFAULTS = { mode: 'on', show: 'both', side: 'right', hudSide: 'left', size: 'medium', bmw: 'hide' };
 /** The app's settings in effect: its defaults (app-spec.json) under what it saved (data/settings.json). */
 function desired(now) {
     const app = findApp(now);
@@ -206,6 +206,7 @@ function desired(now) {
         on: values.mode !== 'off',
         show: ['both', 'cluster', 'hud'].indexOf(values.show) >= 0 ? values.show : 'both',
         side: values.side === 'left' ? 'left' : 'right',
+        hudSide: values.hudSide === 'right' ? 'right' : 'left',
         size: SIZES[values.size] ? values.size : 'medium',
         bmw: values.bmw === 'show' ? 'show' : 'hide',
     };
@@ -263,7 +264,7 @@ function geometry(d, woc) {
     if (x1 - x0 < s.hud + 16 || y1 - y0 < s.hud + 16) {
         x0 = HUD_SEEN.x; y0 = HUD_SEEN.y; x1 = HUD_SEEN.x + HUD_SEEN.w; y1 = HUD_SEEN.y + HUD_SEEN.h;
     }
-    const hud = { size: s.hud, y: y0 + 8, x: d.side === 'left' ? x0 + 8 : x1 - s.hud - 8 };
+    const hud = { size: s.hud, y: y0 + 8, x: d.hudSide === 'right' ? x1 - s.hud - 8 : x0 + 8 };
     hud.x = Math.max(0, Math.min(HUD_W - s.hud, hud.x));
     hud.y = Math.max(0, Math.min(HUD_H - s.hud, hud.y));
     return { map, hud };

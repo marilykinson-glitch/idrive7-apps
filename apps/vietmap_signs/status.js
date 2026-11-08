@@ -58,6 +58,7 @@ function report(s, want, bmw) {
             note: 'Install or update vietmap-signs in the mgu Store', noteKind: 'warn' };
     }
     if (s.stale) lines.push({ text: 'Helper not answering', kind: 'warn' });
+    else lines.push({ text: 'Helper running · ' + s.tool, kind: 'dim' });
     const p = s.phone || {};
     if (!p.at) lines.push({ text: 'Phone: not connected yet', kind: 'warn' });
     else lines.push({ text: 'Phone: ' + p.from + ' · ' + ago(p.ago_ms), kind: p.ago_ms < 5000 ? 'go' : 'warn' });
