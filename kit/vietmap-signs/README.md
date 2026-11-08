@@ -36,6 +36,12 @@ bold sans faces, baked by `kit/tools/bake_sign_templates.py`). Only 5-150 in ste
 matched well, counts; a number shows once two pictures in a row agree, and goes after two without it.
 The picture is not kept. The phone's sign comes first.
 
+**Faster than the sign.** The app writes the car's speed (Vehicle2.statusCarSpeed2, km/h) to its
+`data/speed.json` up to 4 times a second (once a second standing still). While it is fresh and above the
+sign by the app's "Warn when faster than the sign" (above it, 5 or 10 km/h above; off), the sign beats
+(cluster-render's own scale animation, nothing sent per frame) and turns red with white digits every
+other look, on the cluster and the HUD.
+
 **BMW first.** The app writes BMW's displayed limit to its `data/bmw_sign.json` once a second while it
 runs; while that is fresh and valid and the app's setting is "BMW's sign only", the sign is hidden.
 

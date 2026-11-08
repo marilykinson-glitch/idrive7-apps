@@ -46,6 +46,8 @@ class ClusterRender extends EventEmitter {
     set(ref, o) { calls.push(['set', ref, Object.assign({}, o)]); }
     pixels(ref, rects, px) { calls.push(['pixels', ref, px.length]); return true; }
     drop(ref) { calls.push(['drop', ref]); }
+    animate(ref, o) { calls.push(['animate', ref, Object.assign({}, o)]); return 7; }
+    stop(ref, anim) { calls.push(['stop', ref, anim]); }
     close() { calls.push(['close']); }
 }
 module.exports = { ClusterRender, calls };
@@ -124,7 +126,7 @@ function sendNoAnswer(msg) {
 
     // --- settings: the defaults without the app, then the app's ---
     let d = vms.desired(Date.now());
-    assert.deepStrictEqual(d, { app: null, on: true, show: 'both', side: 'right', hudSide: 'left', size: 'medium', bmw: 'hide', screen: true, mapPos: null, hudPos: null });
+    assert.deepStrictEqual(d, { app: null, on: true, show: 'both', side: 'right', hudSide: 'left', size: 'medium', bmw: 'hide', screen: true, warn: 5, mapPos: null, hudPos: null });
     vms._reset();
     const app = installApp(12301, 'vietmap_signs2');
     assert.strictEqual(vms.desired(Date.now()).app, 'vietmap_signs2');
@@ -344,6 +346,42 @@ function sendNoAnswer(msg) {
     const k = grabs().length;
     await until(() => grabs().length > k + 1, 'another picture');
     assert(!/--geometry/.test(grabs()[grabs().length - 1]), 'no --geometry now');
+
+    // --- faster than the sign: the sign beats and blinks red; not while slower, nor with the warning off ---
+    vms.CFG.grabber = path.join(T, 'no-grabber');
+    app.settings({});
+    woc({ state: 'showing', cluster: 1, hud: 1, hud_state: 'showing' });
+    const speedFile = path.join(D.oap, 'oap_12301', 'data', 'speed.json');
+    const speedIs = (kmh) => fs.writeFileSync(speedFile, JSON.stringify({ at: new Date().toISOString(), kmh }));
+    await sleep(700);
+    speedIs(70);
+    a = await send({ t: 'vms', v: 1, seq: 30, limit: 60 });
+    let w = vms.tick();
+    assert.strictEqual(w.over, true, '70 is over 60 + 5');
+    const anims = calls('animate');
+    assert(anims.length >= 2 && anims.every((c) => c[2].property === 'scale' && c[2].loop === true), 'both signs beat');
+    const px1 = calls('pixels').length;
+    vms.tick();
+    vms.tick();
+    assert(calls('pixels').length >= px1 + 2, 'and blink');
+    assert.strictEqual(status().over, true);
+    assert.strictEqual(status().speed, 70);
+    speedIs(64);
+    a = await send({ t: 'vms', v: 1, seq: 31, limit: 60 });
+    w = vms.tick();
+    assert.strictEqual(w.over, false, '64 is within 60 + 5');
+    assert(calls('stop').length >= 2, 'the beat stops');
+    app.settings({ warn: '0' });
+    speedIs(61);
+    a = await send({ t: 'vms', v: 1, seq: 32, limit: 60 });
+    assert.strictEqual(vms.tick().over, true, 'warn above the sign itself');
+    app.settings({ warn: 'off' });
+    speedIs(120);
+    assert.strictEqual(vms.tick().over, false, 'the warning off');
+    app.settings({});
+    fs.writeFileSync(speedFile, JSON.stringify({ at: new Date(Date.now() - 10000).toISOString(), kmh: 120 }));
+    a = await send({ t: 'vms', v: 1, seq: 33, limit: 60 });
+    assert.strictEqual(vms.tick().over, false, 'an old speed warns of nothing');
 
     console.log('vietmap-signs: all checks passed');
     process.exit(0);

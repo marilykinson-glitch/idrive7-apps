@@ -299,5 +299,11 @@
   "sign": "biển",
   "no sign": "không có biển",
   "read while the map shows and the phone is quiet": "đọc khi có bản đồ và điện thoại không gửi",
-  "error": "lỗi"
+  "error": "lỗi",
+  "Warn when faster than the sign": "Cảnh báo khi chạy nhanh hơn biển",
+  "Above the sign": "Vượt biển là báo",
+  "5 km/h above": "Vượt 5 km/h",
+  "10 km/h above": "Vượt 10 km/h",
+  "Speed": "Tốc độ",
+  "OVER THE SIGN": "VƯỢT TỐC ĐỘ"
 }

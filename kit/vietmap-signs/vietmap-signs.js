@@ -39,7 +39,7 @@ const cp = require('child_process');
 const dgram = require('dgram');
 const zlib = require('zlib');
 
-const VERSION = '0.3.0';
+const VERSION = '0.4.0';
 const env = (k, d) => (process.env[k] !== undefined && process.env[k] !== '' ? process.env[k] : d);
 const CFG = {
     oap: env('VMS_OAP', '/var/opt/public/oap'),
@@ -114,12 +114,12 @@ function sample(g, u, v) {
  * The speed-limit sign (Vietnam's P.127 look: a red ring on white, black digits, a thin white rim
  * outside the red so it reads on a dark map) as S x S RGBA, straight alpha.
  */
-function drawSign(limit, S) {
+function drawSign(limit, S, warn) {
     const px = Buffer.alloc(S * S * 4);
     const c = S / 2, R = S / 2 - 0.5;
     const rim = Math.max(1.5, S * 0.035), ring = S * 0.12;
-    const rRed = R - rim, rIn = rRed - ring;
-    const RED = [215, 25, 32], WHITE = [255, 255, 255], INK = [17, 17, 17];
+    const rRed = R - rim, rIn = warn ? -1 : rRed - ring;     // the warning: red to the middle
+    const RED = [215, 25, 32], WHITE = [255, 255, 255], INK = warn ? [255, 255, 255] : [17, 17, 17];
     for (let y = 0; y < S; y++) {
         for (let x = 0; x < S; x++) {
             const dx = x + 0.5 - c, dy = y + 0.5 - c, d = Math.sqrt(dx * dx + dy * dy);
@@ -141,7 +141,7 @@ function drawSign(limit, S) {
     const inkL = placed[0].x, inkR = placed[placed.length - 1].x + placed[placed.length - 1].g.w;
     const inkW = inkR - inkL, H = D.height;
     const cond = gs.length >= 3 ? 0.82 : 0.92;            // narrower digits, as on the signs
-    const k = Math.min((S * 0.44) / H, (2 * rIn * 0.80) / (inkW * cond));
+    const k = Math.min((S * 0.44) / H, (2 * (rRed - ring) * 0.80) / (inkW * cond));
     const sx = k * cond, sy = k;
     const ox = c - (inkW * sx) / 2 - inkL * sx, oy = c - (H * sy) / 2;
     const SUB = [0.25, 0.75];
@@ -165,14 +165,18 @@ function drawSign(limit, S) {
 }
 
 const signCache = new Map();
-function sign(limit, S) {
-    const key = limit + '@' + S;
+function sign(limit, S, warn) {
+    const key = limit + '@' + S + (warn ? '!' : '');
     if (!signCache.has(key)) {
         if (signCache.size > 40) signCache.clear();
-        signCache.set(key, drawSign(limit, S));
+        signCache.set(key, drawSign(limit, S, warn));
     }
     return signCache.get(key);
 }
+
+/* the warning while faster than the sign: the sign beats (the renderer's own animation, nothing sent per
+   frame) and turns red with white digits every other look (twice a second at the 500 ms look) */
+const PULSE = '0:1,1,1 260:1.22,1.22,1 520:1,1,1';
 
 /* ---------------- the app: where it is and what it asks for ---------------- */
 
@@ -198,7 +202,8 @@ function findApp(now) {
     return null;
 }
 
-const DEFAULTS = { mode: 'on', show: 'both', side: 'right', hudSide: 'left', size: 'medium', bmw: 'hide', screen: 'on' };
+const DEFAULTS = { mode: 'on', show: 'both', side: 'right', hudSide: 'left', size: 'medium', bmw: 'hide', screen: 'on', warn: '5' };
+const WARN = { off: null, '0': 0, '5': 5, '10': 10 };
 const POS_KEYS = ['mapX', 'mapY', 'hudX', 'hudY'];
 const PREVIEW_LIMIT = 60;
 /** The app's settings in effect: its defaults (app-spec.json) under what it saved (data/settings.json). */
@@ -223,9 +228,22 @@ function desired(now) {
         size: SIZES[values.size] ? values.size : 'medium',
         bmw: values.bmw === 'show' ? 'show' : 'hide',
         screen: values.screen !== 'off',
+        // warn above the sign by this much (km/h), or null: no warning
+        warn: Object.prototype.hasOwnProperty.call(WARN, String(values.warn)) ? WARN[String(values.warn)] : 5,
         mapPos: pos('mapX', 'mapY'),
         hudPos: pos('hudX', 'hudY'),
     };
+}
+
+/** The car's speed (km/h), as the app writes it (data/speed.json, from Vehicle2.statusCarSpeed2); null when old. */
+function carSpeed(now) {
+    const app = findApp(now);
+    if (!app) return null;
+    const f = path.join(app.root, 'data', 'speed.json');
+    const s = readJson(f);
+    if (!s || !Number.isFinite(s.kmh)) return null;
+    const at = Date.parse(s.at) || mtime(f);
+    return now - at < 2000 && now >= at - 5000 ? s.kmh : null;
 }
 
 /** The app's Position page is open (it writes data/preview.json every second): a sign to place. */
@@ -413,10 +431,13 @@ function applyLayers(want) {
             const ref = cr.image({ target: t, klass: 'overlay', z: 10, x: w.x, y: w.y, w: w.size, h: w.size, iw: w.size, ih: w.size,
                 visible: false, fps: 4, guide_hold: w.guide, contend: false });
             if (!ref) { renderer.error = 'cluster-render client refused the ' + t + ' layer'; return; }
-            L = layers[t] = { ref, size: w.size, x: w.x, y: w.y, limit: null, visible: false, guide: w.guide };
+            L = layers[t] = { ref, size: w.size, x: w.x, y: w.y, limit: null, look: null, anim: 0, visible: false, guide: w.guide };
             renderer.layers[t] = { state: 'made', reason: null };
         }
-        if (L.limit !== want.limit) { cr.pixels(L.ref, null, sign(want.limit, w.size)); L.limit = want.limit; }
+        const look = want.warn && want.blink ? 'warn' : 'plain';
+        if (L.limit !== want.limit || L.look !== look) { cr.pixels(L.ref, null, sign(want.limit, w.size, look === 'warn')); L.limit = want.limit; L.look = look; }
+        if (want.warn && !L.anim) L.anim = cr.animate(L.ref, { property: 'scale', keys: PULSE, loop: true }) || 0;
+        if (!want.warn && L.anim) { cr.stop(L.ref, L.anim); L.anim = 0; }
         if (L.x !== w.x || L.y !== w.y) { cr.set(L.ref, { x: w.x, y: w.y }); L.x = w.x; L.y = w.y; }
         if (L.guide !== w.guide) { cr.set(L.ref, { guide_hold: w.guide }); L.guide = w.guide; }
         if (!L.visible) { cr.set(L.ref, { visible: true }); L.visible = true; }
@@ -426,6 +447,7 @@ function applyLayers(want) {
 /* ---------------- one look ---------------- */
 
 let last = { shown: [], why: '', limit: null };
+let blink = false;
 let lastWrite = 0, lastKey = '';
 
 /* ---------------- the centre screen: the sign in a picture of it ---------------- */
@@ -533,6 +555,8 @@ function decide(now) {
     const g = geometry(d, woc);
     const wantMap = d.on && d.show !== 'hud', wantHud = d.on && d.show !== 'cluster';
     const showOk = renderer.installed !== false && !!limit && (!suppress || placing);
+    const speed = carSpeed(now);
+    const over = !!limit && !placing && d.warn !== null && speed !== null && speed > limit + d.warn;
     const map = Object.assign({ visible: showOk && wantMap && woc.map, guide: woc.guideHold === 0 ? 0 : 1 }, g.map);
     const hud = Object.assign({ visible: showOk && wantHud && woc.hud, guide: woc.guideHold === 0 ? 0 : 1 }, g.hud);
     let why = '';
@@ -548,7 +572,7 @@ function decide(now) {
     else if (!renderer.installed) why = 'cluster-render is not installed';
     else if (!woc.known) why = 'Waze on cluster is not installed';
     else if (!(wantMap && woc.map) && !(wantHud && woc.hud)) why = 'Waze on cluster shows no map there';
-    return { d, woc, placing, reading, source: fresh && phone.limit ? 'phone' : onScreen ? 'screen' : placing ? 'preview' : null, bmw: bmw ? { limit: bmw.limit, valid: bmw.valid, fresh: bmw.fresh, suppress } : null, limit, map, hud, why };
+    return { d, woc, placing, reading, speed, over, source: fresh && phone.limit ? 'phone' : onScreen ? 'screen' : placing ? 'preview' : null, bmw: bmw ? { limit: bmw.limit, valid: bmw.valid, fresh: bmw.fresh, suppress } : null, limit, map, hud, why };
 }
 
 function tick() {
@@ -556,9 +580,10 @@ function tick() {
     if (now - fw.checkedAt >= CFG.ruleMs) ensureRules(now);
     if (!cr) startRenderer();
     const s = decide(now);
-    applyLayers({ limit: s.limit, map: s.map, hud: s.hud });
+    blink = s.over ? !blink : false;
+    applyLayers({ limit: s.limit, map: s.map, hud: s.hud, warn: s.over, blink });
     last = { shown: ['map', 'hud'].filter((t) => s[t].visible), why: s.why, limit: s.limit };
-    const key = JSON.stringify([last, s.bmw, renderer, fw.error, s.d, s.placing, s.reading, s.woc.map, s.woc.hud, phone.from, phone.bad, phone.ignored,
+    const key = JSON.stringify([last, s.bmw, renderer, fw.error, s.d, s.placing, s.reading, s.over, s.woc.map, s.woc.hud, phone.from, phone.bad, phone.ignored,
         screen.limit, screen.error, screen.shots]);
     if (key !== lastKey || now - lastWrite > 2000) { writeStatus(s, now); lastKey = key; lastWrite = now; }
     return s;
@@ -578,6 +603,7 @@ function writeStatus(s, now) {
             layers: renderer.layers, targets: renderer.targets },
         firewall: { present: fw.present, rules: fw.rules, error: fw.error },
         source: s.source,
+        speed: s.speed, over: s.over,
         screen: { on: s.d.screen, reading: s.reading, limit: screen.limit, at: screen.at ? new Date(screen.at).toISOString() : null,
             shots: screen.shots, ms: screen.ms, decode_ms: screen.decodeMs, rings: screen.rings, error: screen.error,
             geometry: screen.geometry || 'full' },

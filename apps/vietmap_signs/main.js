@@ -76,6 +76,30 @@ mgu.run({
         // --- BMW's own sign (bmw.js: every place it may come from), for the screen and the helper ---
         const bmwSigns = BMW.start(ctx);
 
+        // --- the car's speed, for the helper's warning above the sign (data/speed.json, up to 4 times a second) ---
+        let speed = null, speedAt = 0, speedSaved = 0;
+        const speedFile = path.join(ctx.dataDir, 'speed.json');
+        const saveSpeed = () => {
+            const now = Date.now();
+            if (speed === null || now - speedSaved < 250) return;
+            speedSaved = now;
+            try {
+                fs.writeFileSync(speedFile + '.tmp', JSON.stringify({ at: new Date(speedAt).toISOString(), kmh: speed }));
+                fs.renameSync(speedFile + '.tmp', speedFile);
+            } catch (e) { /* the next one */ }
+        };
+        ctx.signals.watch('de.bmw.infotainment.vehicle.Vehicle2', '1', {
+            statusCarSpeed2: (v) => {
+                const raw = v && v.speedVehicleCentreOfGravity;
+                if (!Number.isFinite(raw) || raw === 65535) return;
+                speed = Math.round(raw * 0.015625 * 10) / 10;       // BMW's scaling, km/h
+                speedAt = Date.now();
+                saveSpeed();
+            },
+        }, log).then((sub) => { if (sub.error) log.warn('speed: ' + sub.error); }).catch((e) => log.warn('speed: ' + e));
+        // a car standing still sends no new speed: the last one again, so the helper knows it is current
+        setInterval(() => { if (speed !== null) { speedAt = Date.now(); saveSpeed(); } }, 1000);
+
         const render = async () => {
             const want = { on: settings.get('mode') !== 'off', show: settings.get('show') };
             const b = Object.assign(bmwSigns.best(), { view: bmwSigns.view() });

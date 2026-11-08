@@ -74,6 +74,7 @@ function report(s, want, bmw) {
     if (bmw && bmw.available === false) lines.push({ text: 'BMW sign: no signal', kind: 'dim' });
     else if (bmw && bmw.valid) lines.push({ text: 'BMW sign: ' + bmw.limit + ' km/h' + (bmw.source ? ' (' + bmw.source + ')' : ''), kind: 'dim' });
     else if (bmw) lines.push({ text: 'BMW sign: none', kind: 'dim' });
+    if (Number.isFinite(s.speed)) lines.push({ text: 'Speed: ' + Math.round(s.speed) + ' km/h' + (s.over ? ' · OVER THE SIGN' : ''), kind: s.over ? 'warn' : 'dim' });
     const shown = s.shown || [];
     // the renderer's word on a layer that should show but does not (yet)
     const layer = (t) => {

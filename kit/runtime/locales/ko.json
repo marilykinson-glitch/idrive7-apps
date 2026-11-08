@@ -1846,5 +1846,7 @@
   "BMW's sign only": "BMW 표지판만",
   "VietMap's sign too": "VietMap 표지판도",
   "Sign position on the HUD": "HUD 표지판 위치",
-  "Read the sign on the centre screen (CarPlay)": "중앙 화면에서 표지판 읽기 (CarPlay)"
+  "Read the sign on the centre screen (CarPlay)": "중앙 화면에서 표지판 읽기 (CarPlay)",
+  "Warn when faster than the sign": "표지판보다 빠를 때 경고",
+  "Above the sign": "표지판 초과"
 }
