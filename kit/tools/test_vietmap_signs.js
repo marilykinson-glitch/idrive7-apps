@@ -314,7 +314,6 @@ function sendNoAnswer(msg) {
     assert.strictEqual(st.screen.limit, 80);
     assert(st.screen.shots >= 2, 'two pictures agree first');
     assert.strictEqual(grabs()[0], 'XDG=/run/wayland-test --screen=center --geometry=960x360 --num-frames=1 -p jpeg_msdk(num_frames=1),file ' + path.join(D.run, 'centre.jpg'));
-    assert(!fs.existsSync(path.join(D.run, 'centre.jpg')), 'the picture is not kept');
     // the sign goes from the centre screen: gone after two pictures without it
     fs.writeFileSync(WHICH, path.join(FIX, 'centre-none.jpg'));
     await until(() => vms._last().limit === null, 'no sign');
@@ -337,6 +336,8 @@ function sendNoAnswer(msg) {
     vms.tick();
     assert.strictEqual(grabs().length, n2);
     assert.strictEqual(vms.decide(Date.now()).reading, false);
+    await sleep(300);
+    assert(!fs.existsSync(path.join(D.run, 'centre.jpg')), 'the picture is not kept');
     // a grabber that cannot scale: the screen's own size after two failures
     app.settings({});
     fs.writeFileSync(WHICH, 'fail');
