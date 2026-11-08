@@ -16,13 +16,16 @@ import java.util.regex.Pattern;
  * What the app knows, shared by the services, the car link and the screen, and the choice of the
  * number that is VietMap's speed-limit sign.
  *
- * The accessibility service lists the texts in VietMap Live's windows (its speed bubble among them),
- * the notification reader those of VietMap's notifications. The sign is the number in the item the
- * user picked on the screen (by package and view id), or, before a pick, the one item whose view id
- * names a limit, or the only number there is.
+ * The accessibility service lists the texts in VietMap Live's windows (its speed bubble among them)
+ * and the red-ringed numbers in pictures of them, the notification reader those of VietMap's
+ * notifications. The sign is the number in the item the user picked on the screen (by package and
+ * view id), or, before a pick, the one item whose view id names a limit, or the biggest red-ringed
+ * number in VietMap's windows.
  */
 final class Engine {
-    static final String VERSION = "0.1.0";
+    static final String VERSION = "0.2.0";
+    /** The biggest red-ringed number in VietMap's windows (SignOcr): the sign, when no line is picked. */
+    static final String OCR_SIGN = "ocr:sign";
     static final String PREFS = "vmsign";
 
     /** One text in VietMap's windows or notifications. */
@@ -39,6 +42,8 @@ final class Engine {
         /** The key a pick is kept by: the package and the view id (or where it is, without one). */
         String key() { return pkg + "|" + (id.length() > 0 ? id : where); }
         String shortId() {
+            if (OCR_SIGN.equals(where)) return "hình biển vòng đỏ lớn nhất";
+            if (where.startsWith("ocr:ring")) return "hình vòng đỏ thứ " + where.substring(8);
             String s = id.length() > 0 ? id : where;
             int i = s.indexOf(":id/");
             return i >= 0 ? s.substring(i + 4) : s;
@@ -62,6 +67,10 @@ final class Engine {
     static volatile String carShown = "";
     static volatile String carVersion = "";
     static volatile String linkNote = "";
+
+    // what the screen shows about VietMap's windows and their pictures
+    static volatile String windowsNote = "";
+    static volatile String ocrNote = "";
 
     // a test sign from the screen
     static volatile int testLimit = 0;
@@ -137,6 +146,9 @@ final class Engine {
                 if (HINT.matcher(id).find()) hinted.add(it);
             }
             Item best = hinted.size() > 0 ? hinted.get(0) : null;
+            if (best == null) {
+                for (Item it : all) { if (OCR_SIGN.equals(it.where) && it.number > 0) { best = it; break; } }
+            }
             if (best != null) { n = best.number; src = best.shortId(); }
         }
         limit = n;

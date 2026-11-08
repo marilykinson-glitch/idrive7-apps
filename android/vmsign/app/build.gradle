@@ -3,12 +3,12 @@ plugins {
 }
 
 // The version shown in the app and sent to the car; the workflow names the release after it.
-def appVersion = '0.1.0'
-def appCode = 1
+def appVersion = '0.2.0'
+def appCode = 2
 
 android {
     namespace 'io.github.idrive7apps.vmsign'
-    compileSdk 34
+    compileSdk 35
 
     defaultConfig {
         applicationId 'io.github.idrive7apps.vmsign'
@@ -49,4 +49,9 @@ android {
         abortOnError false
         checkReleaseBuilds false
     }
+}
+
+dependencies {
+    // the sign's number in a picture of VietMap's bubble (SignOcr): on the phone, offline, model in the APK
+    implementation 'com.google.mlkit:text-recognition:16.0.1'
 }

@@ -31,7 +31,7 @@ import java.util.Locale;
  */
 public class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private TextView a11y, notif, battery, sign, signSrc, car, link, pkgs;
+    private TextView a11y, notif, battery, sign, signSrc, car, link, pkgs, diag;
     private Button a11yBtn, notifBtn, batteryBtn;
     private LinearLayout itemsBox;
     private String itemsSig = "";
@@ -151,13 +151,15 @@ public class MainActivity extends Activity {
 
         // 5. what is read in VietMap
         root.addView(header("5. Chữ đọc được trong VietMap"));
-        root.addView(text("Mở VietMap Live cho bong bóng tốc độ hiện ra, rồi bấm vào dòng có SỐ CỦA BIỂN (không phải tốc độ đang chạy). "
-                + "Bấm lại dòng đã chọn để bỏ chọn.", 13, false, DIM));
+        root.addView(text("App tự đọc số trong biển vòng đỏ của VietMap (dòng \"hình biển vòng đỏ lớn nhất\"). "
+                + "Nếu nó đọc nhầm, bấm vào dòng có SỐ CỦA BIỂN để chọn cố định; bấm lại để bỏ chọn.", 13, false, DIM));
         itemsBox = new LinearLayout(this);
         itemsBox.setOrientation(LinearLayout.VERTICAL);
         root.addView(itemsBox);
         pkgs = text("", 12, false, DIM);
         root.addView(pkgs);
+        diag = text("", 12, false, DIM);
+        root.addView(diag);
     }
 
     @Override
@@ -201,9 +203,9 @@ public class MainActivity extends Activity {
         sign.setTextColor(n > 0 ? RED : DIM);
         String key = Engine.pickedKey(this);
         if (Engine.testing()) signSrc.setText("Đang gửi biển thử " + Engine.testLimit);
-        else if (n > 0) signSrc.setText("Từ ô " + Engine.source + (Engine.picked ? " (bạn đã chọn)" : " (tự nhận theo tên ô)"));
-        else if (key.length() > 0) signSrc.setText("Ô đã chọn đang không có số (VietMap chưa hiện biển?)");
-        else signSrc.setText("Chưa biết ô nào là biển: chọn ở mục 5");
+        else if (n > 0) signSrc.setText("Từ " + Engine.source + (Engine.picked ? " (bạn đã chọn)" : " (tự nhận)"));
+        else if (key.length() > 0) signSrc.setText("Dòng đã chọn đang không có số (VietMap chưa hiện biển?)");
+        else signSrc.setText("Chưa thấy biển trong VietMap (mở VietMap cho bong bóng hiện biển)");
 
         if (Engine.carAddr != null && now - Engine.ackAt < 5000) {
             String shown = Engine.carShown.length() > 0 ? "đang hiện trên " + Engine.carShown : "chưa hiện: " + Engine.why(Engine.carWhy);
@@ -219,6 +221,7 @@ public class MainActivity extends Activity {
         link.setText(Engine.linkNote);
 
         renderItems(key);
+        renderDiag();
     }
 
     private void renderItems(String key) {
@@ -230,7 +233,7 @@ public class MainActivity extends Activity {
         itemsSig = s;
         itemsBox.removeAllViews();
         if (items.isEmpty()) {
-            itemsBox.addView(text(SignReaderService.running == null ? "(Trợ năng chưa chạy)" : "(Chưa thấy cửa sổ nào của VietMap)", 14, false, DIM));
+            itemsBox.addView(text(SignReaderService.running == null ? "(Trợ năng chưa chạy)" : "(Chưa đọc được gì trong VietMap)", 14, false, DIM));
         }
         for (final Engine.Item it : items) {
             boolean sel = it.key().equals(key);
@@ -255,6 +258,11 @@ public class MainActivity extends Activity {
             for (String p : Engine.packages) { if (ps.length() > 0) ps.append(", "); ps.append(p); }
         }
         pkgs.setText(ps.length() > 0 ? "Cửa sổ đang mở: " + ps : "");
+    }
+
+    private void renderDiag() {
+        String w = Engine.windowsNote, o = Engine.ocrNote;
+        diag.setText((w.length() > 0 ? w : "Chưa thấy cửa sổ VietMap") + (o.length() > 0 ? "\n" + o : ""));
     }
 
     private boolean enabled(String setting) {
