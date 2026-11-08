@@ -274,5 +274,8 @@
   "Install Waze on cluster (with cluster-render) in the mgu Store": "Cài Waze on cluster (kèm cluster-render) trong mgu Store",
   "Install Waze on cluster in the mgu Store": "Cài Waze on cluster trong mgu Store",
   "Shown when Waze on cluster shows the map": "Biển chỉ hiện khi Waze on cluster đang hiện bản đồ",
-  "Firewall": "Tường lửa"
+  "Firewall": "Tường lửa",
+  "waiting": "đang chờ",
+  "stalled": "chưa có hình",
+  "suspended": "bị che"
 }

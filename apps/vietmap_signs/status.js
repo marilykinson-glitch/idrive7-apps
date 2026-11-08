@@ -65,8 +65,13 @@ function report(s, want, bmw) {
     else if (bmw && bmw.valid) lines.push({ text: 'BMW sign: ' + bmw.limit + ' km/h', kind: 'dim' });
     else if (bmw) lines.push({ text: 'BMW sign: none', kind: 'dim' });
     const shown = s.shown || [];
-    lines.push({ text: 'Cluster: ' + (shown.indexOf('map') >= 0 ? 'shown' : s.waze && s.waze.map ? 'map shown, no sign' : 'no map'), kind: shown.indexOf('map') >= 0 ? 'go' : 'dim' });
-    lines.push({ text: 'HUD: ' + (shown.indexOf('hud') >= 0 ? 'shown' : s.waze && s.waze.hud ? 'map shown, no sign' : 'no map'), kind: shown.indexOf('hud') >= 0 ? 'go' : 'dim' });
+    // the renderer's word on a layer that should show but does not (yet)
+    const layer = (t) => {
+        const l = s.renderer && s.renderer.layers && s.renderer.layers[t];
+        return l && l.state && l.state !== 'shown' ? ' · ' + l.state + (l.reason ? ' (' + l.reason + ')' : '') : '';
+    };
+    lines.push({ text: 'Cluster: ' + (shown.indexOf('map') >= 0 ? 'shown' + layer('map') : s.waze && s.waze.map ? 'map shown, no sign' : 'no map'), kind: shown.indexOf('map') >= 0 ? 'go' : 'dim' });
+    lines.push({ text: 'HUD: ' + (shown.indexOf('hud') >= 0 ? 'shown' + layer('hud') : s.waze && s.waze.hud ? 'map shown, no sign' : 'no map'), kind: shown.indexOf('hud') >= 0 ? 'go' : 'dim' });
     let note, noteKind = 'dim';
     const pending = s.settings && want && (s.settings.on !== want.on || s.settings.show !== want.show);
     if (pending) note = 'Switching · a second';

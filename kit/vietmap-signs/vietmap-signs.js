@@ -37,7 +37,7 @@ const cp = require('child_process');
 const dgram = require('dgram');
 const zlib = require('zlib');
 
-const VERSION = '0.1.0';
+const VERSION = '0.1.1';
 const env = (k, d) => (process.env[k] !== undefined && process.env[k] !== '' ? process.env[k] : d);
 const CFG = {
     oap: env('VMS_OAP', '/var/opt/public/oap'),
@@ -226,16 +226,25 @@ function wocStatus(now) {
     const s = readJson(f);
     if (!s) return { known: false, map: false, hud: false };
     const fresh = now - mtime(f) < CFG.wocStaleMs;
-    const pct = Number(s.hud_width_pct) || 0;
-    const bw = Math.round(pct >= 30 ? HUD_W * Math.min(pct, 85) / 100 : 453);
-    const bh = Math.round(bw * 200 / 453);
-    const hx = isFinite(Number(s.hud_x)) ? Number(s.hud_x) : 50, hy = isFinite(Number(s.hud_y)) ? Number(s.hud_y) : 0;
+    // Waze on cluster's HUD box (its map_feed.cpp quad()): hud_width_pct of the HUD's width (at most
+    // 85 %), the 1088x480 picture's shape, or 0: the fitted 453x200; centred, then moved by hud_x/hud_y
+    // pixels and held inside the HUD's 800x480
+    const pct = Math.min(Number(s.hud_width_pct) || 0, 85);
+    let bw = 453, bh = 200;
+    if (pct > 0) {
+        bw = Math.floor(HUD_W * pct / 100);
+        bh = Math.floor((bw * 480 + 544) / 1088);
+        if (bh > HUD_H) { bh = HUD_H; bw = Math.floor((bh * 1088 + 240) / 480); }
+    }
+    const ox = isFinite(Number(s.hud_x)) ? Number(s.hud_x) : 0, oy = isFinite(Number(s.hud_y)) ? Number(s.hud_y) : 0;
+    const bx = Math.max(0, Math.min(HUD_W - bw, Math.floor((HUD_W - bw) / 2) + ox));
+    const by = Math.max(0, Math.min(HUD_H - bh, Math.floor((HUD_H - bh) / 2) + oy));
     return {
         known: true, fresh, state: s.state || null, reason: s.reason || null,
         map: fresh && s.state === 'showing' && s.target !== 'hud' && Number(s.cluster) !== 0,
         hud: fresh && Number(s.hud) === 1 && s.hud_state === 'showing',
         guideHold: Number(s.hide_bmw_guidance) === 0 ? 0 : 1,
-        hudBox: { x: Math.round((HUD_W - bw) * hx / 100), y: Math.round((HUD_H - bh) * hy / 100), w: bw, h: bh },
+        hudBox: { x: bx, y: by, w: bw, h: bh },
     };
 }
 
@@ -243,7 +252,7 @@ function wocStatus(now) {
 function geometry(d, woc) {
     const s = SIZES[d.size];
     const map = { size: s.map, y: MAP_TOP, x: d.side === 'left' ? MAP_EDGE_X : MAP_W - MAP_EDGE_X - s.map };
-    const b = (woc && woc.hudBox) || { x: 173, y: 0, w: 453, h: 200 };
+    const b = (woc && woc.hudBox) || { x: 173, y: 140, w: 453, h: 200 };
     const hud = { size: s.hud, y: b.y + 8, x: d.side === 'left' ? b.x + 8 : b.x + b.w - s.hud - 8 };
     hud.x = Math.max(0, Math.min(HUD_W - s.hud, hud.x));
     hud.y = Math.max(0, Math.min(HUD_H - s.hud, hud.y));
