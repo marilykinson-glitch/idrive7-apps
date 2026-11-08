@@ -2,9 +2,16 @@ package io.github.idrive7apps.vmsign;
 
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.AccessibilityServiceInfo;
+import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
 import android.graphics.PixelFormat;
+import android.graphics.PorterDuff;
+import android.graphics.PorterDuffXfermode;
 import android.graphics.Rect;
+import android.util.DisplayMetrics;
 import android.hardware.HardwareBuffer;
 import android.os.Build;
 import android.os.Handler;
@@ -32,12 +39,16 @@ import java.util.concurrent.Executors;
  * at each change there, for Engine to find the sign in. Only windows of a package named "...vietmap..."
  * are read; of the others only the package names are kept, for the screen's list.
  *
- * VietMap's bubble draws its numbers itself (no text for Android to hand over), so each of VietMap's
- * windows is also photographed in turn (Android 14 and later: that window alone, whatever covers it;
- * Android 11 to 13: the screen, cut to the window) and the red-ringed sign in it read (SignOcr).
+ * VietMap's bubble draws its numbers itself (no text for Android to hand over), so the screen is
+ * photographed about once a second, cut to VietMap's windows, and the red-ringed sign in it read
+ * (SignOcr). A picture of VietMap's window alone (Android 14) came out empty on the car's phone.
  *
  * While VietMap shows a window and "keep the screen on" is set, a 1x1 accessibility overlay keeps the
- * screen from going off, since a locked or dark screen shows no bubble to read.
+ * screen from going off, since a locked or dark screen shows no bubble to read. With "dark screen" set,
+ * while the car answers and VietMap shows only its bubble, the screen goes black but for the bubble,
+ * at the lowest brightness: it looks off, and the bubble is still there to be photographed. The black
+ * takes no touch (so Android still lists the windows under it); a small dim button opens the screen
+ * for 2 minutes.
  */
 public class SignReaderService extends AccessibilityService {
     static volatile SignReaderService running = null;
@@ -46,6 +57,12 @@ public class SignReaderService extends AccessibilityService {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private boolean scanQueued = false;
     private View keepOn = null;
+    private Dim dim = null;
+    private View dimButton = null;
+    private boolean dimButtonTop = false;
+    private long snoozeUntil = 0;
+    private final Rect lastBubble = new Rect();
+    private long lastBubbleAt = 0;
 
     // pictures of VietMap's windows: one at a time, one window after the other
     private final ExecutorService ocrThread = Executors.newSingleThreadExecutor();
@@ -108,6 +125,7 @@ public class SignReaderService extends AccessibilityService {
         ocrThread.shutdownNow();
         handler.removeCallbacksAndMessages(null);
         setKeepOn(false);
+        setDim(false, null);
         running = null;
         CarLink.get(this).stop();
         super.onDestroy();
@@ -140,11 +158,42 @@ public class SignReaderService extends AccessibilityService {
                         .append(" · ").append(count[0]).append(" phần tử, ").append(items.size() - before).append(" có chữ");
             }
         }
+        long now = System.currentTimeMillis();
+        // the bubble: VietMap's windows together, when each is small (VietMap itself not open)
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        long screen = (long) dm.widthPixels * dm.heightPixels;
+        Rect bubble = new Rect();
+        boolean small = !vietmap.isEmpty();
+        for (int[] w : vietmap) {
+            long area = (long) (w[3] - w[1]) * (w[4] - w[2]);
+            if (area > screen / 4) small = false;
+            bubble.union(w[1], w[2], w[3], w[4]);
+        }
+        if (small) { lastBubble.set(bubble); lastBubbleAt = now; }
+        // under the black, a phone may list the bubble no more: its last place holds for 10 s
+        if (vietmap.isEmpty() && dim != null && now - lastBubbleAt < 10000 && !lastBubble.isEmpty()) {
+            vietmap.add(new int[] { -1, lastBubble.left, lastBubble.top, lastBubble.right, lastBubble.bottom });
+            small = true;
+        }
         Engine.windowsNote = note.toString();
         items.addAll(ocrItems(vietmap));
         Engine.setWindowItems(this, items, pkgs);
-        setKeepOn(!vietmap.isEmpty() && Engine.prefs(this).getBoolean("keepOn", true));
+        boolean carHere = Engine.carAddr != null && now - Engine.ackAt < 10000;
+        boolean wantDim = small && carHere && Engine.prefs(this).getBoolean("dim", true)
+                && !MainActivity.visible && now >= snoozeUntil;
+        Engine.dimNote = dimNote(small, carHere, now);
+        setDim(wantDim, small ? (lastBubble.isEmpty() ? bubble : lastBubble) : null);
+        setKeepOn(!wantDim && !vietmap.isEmpty() && Engine.prefs(this).getBoolean("keepOn", true));
         if (!vietmap.isEmpty()) shoot(vietmap);
+    }
+
+    private String dimNote(boolean small, boolean carHere, long now) {
+        if (!Engine.prefs(this).getBoolean("dim", true)) return "Màn hình tối: tắt";
+        if (dim != null) return "Màn hình tối: đang bật";
+        if (now < snoozeUntil) return "Màn hình tối: tạm mở thêm " + ((snoozeUntil - now) / 1000) + " giây";
+        if (!carHere) return "Màn hình tối: bật khi đã nối xe";
+        if (!small) return "Màn hình tối: bật khi VietMap chỉ còn bong bóng";
+        return "Màn hình tối: bật khi rời app này";
     }
 
     /** The rings read in the last pictures of the windows still there: the biggest is the sign. */
@@ -157,7 +206,7 @@ public class SignReaderService extends AccessibilityService {
             java.util.Iterator<Map.Entry<Integer, Shot>> it = shots.entrySet().iterator();
             while (it.hasNext()) {
                 Map.Entry<Integer, Shot> e = it.next();
-                if (!ids.contains(e.getKey() / 2)) { it.remove(); continue; }
+                if (!ids.contains(Math.floorDiv(e.getKey(), 2))) { it.remove(); continue; }
                 if (now - e.getValue().at < 4000) all.addAll(e.getValue().rings);
             }
         }
@@ -185,7 +234,7 @@ public class SignReaderService extends AccessibilityService {
         }
         shooting = true;
         shotAt = now;
-        boolean windowTurn = Build.VERSION.SDK_INT >= 34 && (turn++ % 2 == 0);
+        boolean windowTurn = false;     // a window's own picture came out empty: the screen only
         try {
             if (windowTurn) {
                 final int[] w = vietmap.get((turn / 2) % vietmap.size());
@@ -269,6 +318,89 @@ public class SignReaderService extends AccessibilityService {
             AccessibilityNodeInfo c;
             try { c = n.getChild(i); } catch (RuntimeException e) { c = null; }
             walk(c, pkg, where + "/" + i, out, count, depth + 1);
+        }
+    }
+
+    /** The black over everything but the bubble, and its button. */
+    private void setDim(boolean on, Rect bubble) {
+        WindowManager wm = (WindowManager) getSystemService(WINDOW_SERVICE);
+        if (wm == null) return;
+        try {
+            if (on && dim == null) {
+                dim = new Dim(this);
+                WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
+                        WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
+                        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                                | WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                                | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                        PixelFormat.TRANSLUCENT);
+                lp.gravity = Gravity.TOP | Gravity.START;
+                lp.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_OFF;
+                if (Build.VERSION.SDK_INT >= 28) lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+                wm.addView(dim, lp);
+            } else if (!on && dim != null) {
+                wm.removeView(dim);
+                dim = null;
+            }
+            if (dim != null && bubble != null) dim.setHole(bubble);
+            // the button: away from the bubble, a dim circle that opens the screen for 2 minutes
+            boolean top = bubble != null && bubble.centerY() > getResources().getDisplayMetrics().heightPixels / 2;
+            if (dimButton != null && (dim == null || top != dimButtonTop)) { wm.removeView(dimButton); dimButton = null; }
+            if (dim != null && dimButton == null) {
+                dimButtonTop = top;
+                android.widget.TextView b = new android.widget.TextView(this);
+                b.setText("☼");
+                b.setTextSize(22);
+                b.setGravity(Gravity.CENTER);
+                b.setTextColor(Color.parseColor("#3A3A3A"));
+                b.setOnClickListener(new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        snoozeUntil = System.currentTimeMillis() + 120000;
+                        handler.post(soon);
+                    }
+                });
+                int size = Math.round(64 * getResources().getDisplayMetrics().density);
+                WindowManager.LayoutParams lp = new WindowManager.LayoutParams(size, size,
+                        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                        PixelFormat.TRANSLUCENT);
+                lp.gravity = (top ? Gravity.TOP : Gravity.BOTTOM) | Gravity.CENTER_HORIZONTAL;
+                lp.y = Math.round(48 * getResources().getDisplayMetrics().density);
+                wm.addView(b, lp);
+                dimButton = b;
+            }
+        } catch (RuntimeException e) {
+            Engine.dimNote = "Màn hình tối lỗi: " + e.getMessage();
+            try { if (dim != null) wm.removeView(dim); } catch (RuntimeException e2) { /* gone */ }
+            try { if (dimButton != null) wm.removeView(dimButton); } catch (RuntimeException e2) { /* gone */ }
+            dim = null;
+            dimButton = null;
+        }
+    }
+
+    /** Black, but for a hole where the bubble is. */
+    private static final class Dim extends View {
+        private final Rect hole = new Rect();
+        private final Paint clear = new Paint();
+        private final int[] at = new int[2];
+        Dim(Context c) {
+            super(c);
+            clear.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.CLEAR));
+        }
+        void setHole(Rect r) {
+            Rect h = new Rect(r);
+            int pad = Math.round(8 * getResources().getDisplayMetrics().density);
+            h.inset(-pad, -pad);
+            if (!h.equals(hole)) { hole.set(h); invalidate(); }
+        }
+        @Override protected void onDraw(Canvas c) {
+            c.drawColor(Color.BLACK);
+            if (hole.isEmpty()) return;
+            getLocationOnScreen(at);
+            Rect r = new Rect(hole);
+            r.offset(-at[0], -at[1]);
+            c.drawRect(r, clear);
         }
     }
 

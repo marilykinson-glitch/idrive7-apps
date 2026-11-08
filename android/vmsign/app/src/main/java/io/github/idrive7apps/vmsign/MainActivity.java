@@ -32,9 +32,12 @@ import java.util.Locale;
  * the settings, and everything read in VietMap's windows, where a tap picks the item that is the sign.
  */
 public class MainActivity extends Activity {
+    /** While this screen shows, the screen is never made dark. */
+    static volatile boolean visible = false;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private TextView a11y, notif, battery, sign, signSrc, car, link, pkgs, diag;
     private ImageView shotWindow, shotScreen;
+    private TextView dimState;
     private Bitmap shownWindow, shownScreen;
     private Button a11yBtn, notifBtn, batteryBtn;
     private LinearLayout itemsBox;
@@ -136,6 +139,19 @@ public class MainActivity extends Activity {
             }
         });
         root.addView(keep);
+        CheckBox dark = new CheckBox(this);
+        dark.setText("Màn hình tối khi đã nối xe: cả màn hình đen, độ sáng thấp nhất, chỉ chừa bong bóng VietMap "
+                + "(chạm nút ☼ mờ để mở lại 2 phút). Đừng bấm nút nguồn: khoá máy là ngừng đọc.");
+        dark.setChecked(Engine.prefs(this).getBoolean("dim", true));
+        dark.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override public void onCheckedChanged(CompoundButton b, boolean on) {
+                Engine.prefs(MainActivity.this).edit().putBoolean("dim", on).apply();
+                SignReaderService.refresh();
+            }
+        });
+        root.addView(dark);
+        dimState = text("", 13, false, DIM);
+        root.addView(dimState);
         root.addView(text("IP của xe (để trống: tự dò)", 14, false, DIM));
         LinearLayout ipRow = new LinearLayout(this);
         ipRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -164,11 +180,7 @@ public class MainActivity extends Activity {
         root.addView(pkgs);
         diag = text("", 12, false, DIM);
         root.addView(diag);
-        root.addView(text("Ảnh cửa sổ VietMap app chụp được:", 12, false, DIM));
         shotWindow = new ImageView(this);
-        shotWindow.setAdjustViewBounds(true);
-        shotWindow.setBackgroundColor(Color.parseColor("#404040"));
-        root.addView(shotWindow);
         root.addView(text("Ảnh màn hình cắt theo cửa sổ VietMap:", 12, false, DIM));
         shotScreen = new ImageView(this);
         shotScreen.setAdjustViewBounds(true);
@@ -179,12 +191,16 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        visible = true;
+        SignReaderService.refresh();
         handler.removeCallbacks(refresh);
         handler.post(refresh);
     }
 
     @Override
     protected void onPause() {
+        visible = false;
+        SignReaderService.refresh();
         handler.removeCallbacks(refresh);
         super.onPause();
     }
@@ -236,6 +252,7 @@ public class MainActivity extends Activity {
 
         renderItems(key);
         renderDiag();
+        dimState.setText(Engine.dimNote);
     }
 
     private void renderItems(String key) {

@@ -23,7 +23,7 @@ import java.util.regex.Pattern;
  * number in VietMap's windows.
  */
 final class Engine {
-    static final String VERSION = "0.2.1";
+    static final String VERSION = "0.3.0";
     /** The biggest red-ringed number in VietMap's windows (SignOcr): the sign, when no line is picked. */
     static final String OCR_SIGN = "ocr:sign";
     static final String PREFS = "vmsign";
@@ -72,6 +72,7 @@ final class Engine {
     static volatile String windowsNote = "";
     static volatile String ocrNote = "";
     static volatile String ocrNote2 = "";
+    static volatile String dimNote = "";
     static volatile android.graphics.Bitmap windowShot = null;
     static volatile android.graphics.Bitmap screenShot = null;
 
