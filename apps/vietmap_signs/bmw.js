@@ -57,12 +57,19 @@ function limitOf(v) {
 function start(ctx) {
     const { log } = ctx;
     const state = {};
-    SOURCES.forEach((s) => { state[s.key] = { name: s.name, available: false, error: null, value: null, at: 0, raw: '' }; });
+    SOURCES.forEach((s) => { state[s.key] = { name: s.name, connected: false, available: false, error: null, value: null, at: 0, raw: '', seenAvail: null }; });
+    const setAvail = (st, s, a) => {
+        a = !!a;
+        if (st.seenAvail === a) return;
+        st.seenAvail = a;
+        st.available = a;
+        log.info('BMW ' + s.name + ': ' + (a ? 'available (provider up)' : 'not available (provider down)'));
+    };
     const got = (s) => (v) => {
         const st = state[s.key];
         st.value = limitOf(v);
         st.at = Date.now();
-        st.available = true;
+        setAvail(st, s, true); // a value only ever arrives once the provider is really there
         const raw = JSON.stringify(v === undefined ? null : v);
         if (raw !== st.raw) { st.raw = raw; log.info('BMW ' + s.name + ': ' + raw.slice(0, 300) + ' -> ' + (st.value.valid ? st.value.limit : 'none')); }
     };
@@ -72,7 +79,11 @@ function start(ctx) {
             ctx.signals.watch(s.iface, '1', { [s.member]: got(s) }, log)
                 .then((sub) => {
                     st.sub = sub;
+                    st.connected = true;
                     if (sub.error) { st.error = String(sub.error).slice(0, 120); log.warn('BMW ' + s.name + ': ' + sub.error); }
+                    else log.info('BMW ' + s.name + ': proxy up, subscribed (' + s.iface + ')');
+                    // watch()'s own availability is live on this same object - poll it in, since there is no callback out
+                    setInterval(() => setAvail(st, s, sub.available), 1000);
                 })
                 .catch((e) => { st.error = String(e).slice(0, 120); log.warn('BMW ' + s.name + ': ' + e); });
         } else {
@@ -80,12 +91,17 @@ function start(ctx) {
                 .then(() => ctx.signals.proxy(s.iface, '1'))
                 .then((p) => {
                     st.proxy = p;
-                    return ctx.signals.on(p, s.member, got(s), log).then(() => ctx.signals.onAvailable(p, (a) => { st.available = a; }));
+                    st.connected = true;
+                    log.info('BMW ' + s.name + ': proxy up (' + s.iface + ')');
+                    return ctx.signals.on(p, s.member, got(s), log)
+                        .then(() => log.info('BMW ' + s.name + ': subscribed to ' + s.member))
+                        .catch((e) => { st.error = String(e).slice(0, 120); log.warn('BMW ' + s.name + ' subscribe: ' + e); })
+                        .then(() => ctx.signals.onAvailable(p, (a) => setAvail(st, s, a)));
                 })
                 .catch((e) => { st.error = String(e).slice(0, 120); log.warn('BMW ' + s.name + ': ' + e); });
         }
     });
-    const live = (st) => st.available || (st.sub && st.sub.available);
+    const live = (st) => st.available;
     /** The first source with a valid limit; or, of those that answer, that there is none. */
     const best = () => {
         for (const s of SOURCES) {
@@ -95,11 +111,16 @@ function start(ctx) {
         const any = SOURCES.some((s) => live(state[s.key]));
         return { available: any, valid: false, limit: null, source: null };
     };
-    /** One short line per source for the screen. */
+    /**
+     * One short line per source for the screen: "connecting" (no proxy yet), "error ..." (proxy or
+     * subscribe failed), "no signal" (proxy/subscribe fine, but the car's provider is not up),
+     * "waiting" (provider up, no value sent yet), or the number (or "none").
+     */
     const view = () => SOURCES.map((s) => {
         const st = state[s.key];
         if (st.error) return s.name + ': error ' + st.error.replace(/^Error:\s*/, '').slice(0, 40);
-        if (!live(st)) return s.name + ': no signal';
+        if (!st.connected) return s.name + ': connecting';
+        if (!st.available) return s.name + ': no signal';
         if (!st.value) return s.name + ': waiting';
         return s.name + ': ' + (st.value.valid ? st.value.limit : 'none');
     }).join('  ·  ');
