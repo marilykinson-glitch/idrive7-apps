@@ -9,3 +9,9 @@ It prints the car's network addresses and neighbours (a phone on the car's Wi-Fi
 the firewall's input chain, which cluster tools are installed, the speed-limit / traffic-sign and the
 Android Auto / projection names in the SOME/IP catalog (`probe-catalog.js`, names and types only, no
 values), and aapd's focus lines of this boot.
+
+0.2.0: BMW's own speed-limit sign. `probe-iface.js` prints everything the SOME/IP catalog says about the
+interfaces it may come from (TrafficSignDisplayControl, the navigation's adasng CCP and ADAS, FASuS,
+SignRecognitionFrontCamera): their instances and ids, and the full types of their speed, sign and limit
+fields and events; then what the VietMap signs app got (its generated interface configs, its log's BMW lines),
+and where the someip native module is.

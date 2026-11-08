@@ -57,7 +57,7 @@ function report(s, want, bmw) {
     const lines = [];
     if (!s) {
         return { limit: null, lines: [{ text: 'Helper not running', kind: 'warn' }],
-            note: 'Install or update vietmap-signs in the mgu Store', noteKind: 'warn' };
+            note: 'Install or update vietmap-signs in the mgu Store', noteKind: 'warn', bmwView: bmw && bmw.view };
     }
     if (s.stale) lines.push({ text: 'Helper not answering', kind: 'warn' });
     else lines.push({ text: 'Helper running · ' + s.tool, kind: 'dim' });
@@ -72,7 +72,7 @@ function report(s, want, bmw) {
         } else lines.push({ text: 'Centre screen: read while the map shows and the phone is quiet', kind: 'dim' });
     }
     if (bmw && bmw.available === false) lines.push({ text: 'BMW sign: no signal', kind: 'dim' });
-    else if (bmw && bmw.valid) lines.push({ text: 'BMW sign: ' + bmw.limit + ' km/h', kind: 'dim' });
+    else if (bmw && bmw.valid) lines.push({ text: 'BMW sign: ' + bmw.limit + ' km/h' + (bmw.source ? ' (' + bmw.source + ')' : ''), kind: 'dim' });
     else if (bmw) lines.push({ text: 'BMW sign: none', kind: 'dim' });
     const shown = s.shown || [];
     // the renderer's word on a layer that should show but does not (yet)
@@ -90,7 +90,7 @@ function report(s, want, bmw) {
     else if (shown.length) { note = shown.length > 1 ? 'Shown on the cluster and the HUD' : shown[0] === 'map' ? 'Shown on the cluster' : 'Shown on the HUD'; noteKind = 'go'; }
     else note = WHY[s.why] || s.why || '';
     if (/install/i.test(note || '')) noteKind = 'warn';
-    return { limit: s.limit || null, phoneLimit: p.limit || null, lines, note, noteKind, pending: !!pending };
+    return { limit: s.limit || null, phoneLimit: p.limit || null, lines, note, noteKind, pending: !!pending, bmwView: bmw && bmw.view };
 }
 
 module.exports = { readStatus, report, bmwFrom, STATUS, STALE_MS, WHY };

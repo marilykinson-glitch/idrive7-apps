@@ -7,7 +7,7 @@
  * installed with this app), which draws the sign over Waze on cluster's map through cluster-render.
  * This app says what is wanted (its settings, saved by the kit in data/settings.json, which the helper
  * reads), shows what the helper reports (/run/vietmap-signs/status.json), and, while it runs, writes
- * BMW's own displayed speed limit (SOME/IP TrafficSignDisplayControl) to data/bmw_sign.json once a
+ * BMW's own speed limit (bmw.js: the cluster's sign, the car's map) to data/bmw_sign.json once a
  * second, so the helper can leave the cluster to BMW's sign while it shows one.
  */
 const fs = require('fs');
@@ -16,10 +16,8 @@ const mgu = require('./kit/mgu');
 const G = require('./kit/gauges');
 const { Canvas } = require('./kit/canvas');
 const UI = require('./ui');
-const { readStatus, report, bmwFrom } = require('./status');
-
-const BMW_IFACE = 'de.bmw.dass.driverassistanceapplications.TrafficSignDisplayControl';
-const BMW_FIELD = 'displaySpeedLimitAndNoPassingRestriction';
+const { readStatus, report } = require('./status');
+const BMW = require('./bmw');
 
 mgu.run({
     async start(ctx) {
@@ -75,28 +73,12 @@ mgu.run({
             try { fs.writeFileSync(previewFile, JSON.stringify({ at: new Date().toISOString() })); } catch (e) { /* the next one */ }
         };
 
-        // --- BMW's own sign, for the helper ---
-        let bmw = null, bmwSub = null, lastRaw = '';
-        const bmwFile = path.join(ctx.dataDir, 'bmw_sign.json');
-        const onBmw = (v) => {
-            bmw = bmwFrom(v);
-            const raw = JSON.stringify(bmw.raw);
-            if (raw !== lastRaw) { lastRaw = raw; log.info('BMW sign: ' + raw + (bmw.valid ? ' -> ' + bmw.limit : ' -> none')); }
-        };
-        ctx.signals.watch(BMW_IFACE, '1', { [BMW_FIELD]: onBmw }, log)
-            .then((sub) => { bmwSub = sub; if (sub.error) log.warn('BMW sign: ' + sub.error); })
-            .catch((e) => log.warn('BMW sign: ' + e));
-        setInterval(() => {
-            if (!bmwSub || !bmwSub.available || !bmw) return;
-            try {
-                fs.writeFileSync(bmwFile + '.tmp', JSON.stringify({ at: new Date().toISOString(), limit: bmw.limit, valid: bmw.valid, raw: bmw.raw }));
-                fs.renameSync(bmwFile + '.tmp', bmwFile);
-            } catch (e) { /* the next second */ }
-        }, 1000);
+        // --- BMW's own sign (bmw.js: every place it may come from), for the screen and the helper ---
+        const bmwSigns = BMW.start(ctx);
 
         const render = async () => {
             const want = { on: settings.get('mode') !== 'off', show: settings.get('show') };
-            const b = bmwSub ? Object.assign({ available: !!bmwSub.available }, bmw || { valid: false }) : null;
+            const b = Object.assign(bmwSigns.best(), { view: bmwSigns.view() });
             status = readStatus();
             previewTick();
             const r = report(status, want, b);

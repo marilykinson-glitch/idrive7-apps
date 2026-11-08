@@ -112,6 +112,8 @@ function draw(cv, G, t, v, act) {
     sign(cv, cx, cy, R, v.limit || v.phoneLimit, t, G);
     const cap = v.limit ? 'On the cluster now' : v.phoneLimit ? 'From the phone, not shown' : 'No sign from the phone';
     cv.text(cap, cx, cy + R + 40, 18, t.dim, { align: 'center', font: 'label' });
+    // where BMW's own sign comes from: each source's word, small
+    if (v.bmwView) cv.text('BMW  ' + v.bmwView, 64, G.TOP + 420, 14, t.dim, { font: 'label' });
 
     // --- on / off, where, the helper's report ---
     const rx = 640;

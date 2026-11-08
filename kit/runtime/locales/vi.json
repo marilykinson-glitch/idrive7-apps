@@ -298,5 +298,6 @@
   "The centre screen cannot be read": "Không đọc được màn giữa",
   "sign": "biển",
   "no sign": "không có biển",
-  "read while the map shows and the phone is quiet": "đọc khi có bản đồ và điện thoại không gửi"
+  "read while the map shows and the phone is quiet": "đọc khi có bản đồ và điện thoại không gửi",
+  "error": "lỗi"
 }

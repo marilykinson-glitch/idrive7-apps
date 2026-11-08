@@ -2,7 +2,7 @@
   "id": "vietmap_signs",
   "title": "VietMap signs",
   "description": "VietMap Live's speed-limit sign, read on the centre screen (its CarPlay widget) or on the phone by the VietMap signs phone app and sent over the car's Wi-Fi, drawn over Waze on cluster's map on the cluster and the HUD. BMW's own sign comes first if you like. Its helper (vietmap-signs) installs with it; Waze on cluster and its cluster-render must be installed.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "vendor": "custom",
   "loggingId": "OAA5",
   "iconGlyph": "flag",
@@ -10,6 +10,14 @@
     "de.bmw.dass.driverassistanceapplications.TrafficSignDisplayControl": {
       "_optional": "BMW's own speed sign; VietMap's sign then always shows",
       "displaySpeedLimitAndNoPassingRestriction": "s"
+    },
+    "de.bmw.infotainment.navigation.externalize.adasng.CCP": {
+      "_optional": "the speed limit of BMW's own map",
+      "_broadcasts": ["effectiveSpeedLimit"]
+    },
+    "de.bmw.infotainment.fasus.FASuS": {
+      "_optional": "BMW's speed-limit recognition",
+      "statusNextSpeedLimitRecognition": "rs"
     }
   },
   "screens": [
