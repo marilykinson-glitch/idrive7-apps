@@ -303,7 +303,7 @@ function sendNoAnswer(msg) {
         for (let i = 0; i < 60; i++) { vms.tick(); if (fn()) return; await sleep(60); }
         throw new Error('never: ' + what + ' ' + JSON.stringify(vms._last()));
     };
-    app.settings({});
+    app.settings({ screen: 'on' });
     app.bmw({ at: new Date(Date.now() - 60000).toISOString(), limit: 50, valid: true });
     woc({ state: 'showing', cluster: 1, hud: 1, hud_state: 'showing' });
     vms.CFG.grabber = grabber;
@@ -339,7 +339,7 @@ function sendNoAnswer(msg) {
     await sleep(300);
     assert(!fs.existsSync(path.join(D.run, 'centre.jpg')), 'the picture is not kept');
     // a grabber that cannot scale: the screen's own size after two failures
-    app.settings({});
+    app.settings({ screen: 'on' });
     fs.writeFileSync(WHICH, 'fail');
     await until(() => /grabber failed/.test(status().screen.error || '') && status().screen.geometry === 'full', 'the full size');
     assert.strictEqual(vms._last().why, 'the centre screen cannot be read');
