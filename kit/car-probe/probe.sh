@@ -6,7 +6,7 @@
 D=$(cd "$(dirname "$0")" && pwd)
 NODE=$(command -v node || echo /usr/bin/node)
 sec() { echo "== $*"; }
-echo "car-probe 0.3.0 begin $(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
+echo "car-probe 0.4.0 begin $(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
 
 sec "BMW speed-limit interfaces"
 "$NODE" "$D/probe-iface.js" 'TrafficSignDisplayControl|adasng\.CCP$|navigation\.ADAS$|fasus\.FASuS$|SignRecognitionFrontCamera$' \
@@ -41,6 +41,21 @@ while kill -0 "$PID" 2>/dev/null && [ "$n" -lt 40 ]; do sleep 1; n=$((n + 1)); d
 kill -0 "$PID" 2>/dev/null && { kill -9 "$PID" 2>/dev/null; echo "read probe: stopped after 40 s"; }
 cut -c 1-1100 "$OUT"
 rm -f "$OUT"
+
+sec "heard while driving (the last listen)"
+LDIR=/var/opt/public; [ -d "$LDIR" ] || LDIR=/tmp
+if [ -f "$LDIR/car-probe-listen.log" ]; then tail -n 220 "$LDIR/car-probe-listen.log" | cut -c 1-900; else echo "no listen yet"; fi
+# a new listen, 25 minutes, on its own (stopped when car-probe is removed)
+"$NODE" "$D/probe-listen.js" stop
+if command -v systemd-run >/dev/null 2>&1; then
+    systemd-run --quiet --unit="car-probe-listen-$$" "$NODE" "$D/probe-listen.js" 2>&1 && echo "listening for 25 min (systemd)"
+elif command -v setsid >/dev/null 2>&1; then
+    setsid "$NODE" "$D/probe-listen.js" >/dev/null 2>&1 < /dev/null &
+    echo "listening for 25 min (setsid)"
+else
+    nohup "$NODE" "$D/probe-listen.js" >/dev/null 2>&1 < /dev/null &
+    echo "listening for 25 min (nohup)"
+fi
 
 sec "someip native module"
 ls -l /usr/lib/someip.node 2>&1
