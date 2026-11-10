@@ -93,10 +93,12 @@ function start(ctx) {
                     st.proxy = p;
                     st.connected = true;
                     log.info('BMW ' + s.name + ': proxy up (' + s.iface + ')');
-                    return ctx.signals.on(p, s.member, got(s), log)
+                    // availability first, subscribe to the event second - the same order watch() uses for
+                    // fields (and the only order the binding was ever seen to call back availability on)
+                    return ctx.signals.onAvailable(p, (a) => setAvail(st, s, a))
+                        .then(() => ctx.signals.on(p, s.member, got(s), log))
                         .then(() => log.info('BMW ' + s.name + ': subscribed to ' + s.member))
-                        .catch((e) => { st.error = String(e).slice(0, 120); log.warn('BMW ' + s.name + ' subscribe: ' + e); })
-                        .then(() => ctx.signals.onAvailable(p, (a) => setAvail(st, s, a)));
+                        .catch((e) => { st.error = String(e).slice(0, 120); log.warn('BMW ' + s.name + ' subscribe: ' + e); });
                 })
                 .catch((e) => { st.error = String(e).slice(0, 120); log.warn('BMW ' + s.name + ': ' + e); });
         }
