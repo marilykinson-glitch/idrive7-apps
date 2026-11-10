@@ -20,8 +20,23 @@ const SOURCES = [
     { key: 'tsd', name: 'TSD', iface: 'de.bmw.dass.driverassistanceapplications.TrafficSignDisplayControl', kind: 'field',
         member: 'displaySpeedLimitAndNoPassingRestriction' },
     { key: 'map', name: 'Map', iface: 'de.bmw.infotainment.navigation.externalize.adasng.CCP', kind: 'event', member: 'effectiveSpeedLimit' },
-    { key: 'fasus', name: 'FASuS', iface: 'de.bmw.infotainment.fasus.FASuS', kind: 'field', member: 'statusNextSpeedLimitRecognition' },
+    // the head unit's own map, as it tells the car's driver assistance: the limit of the stretch the car is on.
+    // Read only (no notifier): asked every few seconds.
+    { key: 'nav', name: 'Nav', iface: 'de.bmw.infotainment.navigation.ADAS', kind: 'field', member: 'speedLimitProfileNavGraph2', poll: true,
+        parse: (v) => enumLimit(v, v && v.limitSpeed1NavGraph2, (n) => (n >= 2 && n <= 38 ? (n - 1) * 5 : null)) },
+    // the next limit ahead, not the one in force: last
+    { key: 'fasus', name: 'FASuS', iface: 'de.bmw.infotainment.fasus.FASuS', kind: 'field', member: 'statusNextSpeedLimitRecognition', poll: true,
+        parse: (v) => enumLimit(v, v && v.nextClassLimitSpeed, (n) => (n >= 1 && n <= 30 && n !== 29 ? n * 5 : null)) },
 ];
+
+/** A limit sent as an enum: its name ("_60") or its number (byNumber gives the km/h). */
+function enumLimit(raw, x, byNumber) {
+    let n = null;
+    if (typeof x === 'number') n = byNumber(x);
+    else if (typeof x === 'string') { const m = /^_?([0-9]{1,3})$/.exec(x); n = m ? Number(m[1]) : null; }
+    const ok = n !== null && n >= 5 && n <= 150;
+    return { limit: ok ? n : null, valid: ok, raw: raw === undefined ? null : raw };
+}
 
 const HIDDEN = /NO_?DISPLAY|NONE|^OFF|INVALID|NOT_|INACTIVE|UNKNOWN|NO_SIGN|UNLIMITED|NO_LIMIT/i;
 
@@ -67,7 +82,7 @@ function start(ctx) {
     };
     const got = (s) => (v) => {
         const st = state[s.key];
-        st.value = limitOf(v);
+        st.value = (s.parse || limitOf)(v);
         st.at = Date.now();
         setAvail(st, s, true); // a value only ever arrives once the provider is really there
         const raw = JSON.stringify(v === undefined ? null : v);
@@ -83,7 +98,17 @@ function start(ctx) {
                     if (sub.error) { st.error = String(sub.error).slice(0, 120); log.warn('BMW ' + s.name + ': ' + sub.error); }
                     else log.info('BMW ' + s.name + ': proxy up, subscribed (' + s.iface + ')');
                     // watch()'s own availability is live on this same object - poll it in, since there is no callback out
-                    setInterval(() => setAvail(st, s, sub.available), 1000);
+                    setInterval(() => { if (sub.available || !st.at) setAvail(st, s, sub.available || false); }, 1000);
+                    // asked outright too: a field without a notifier, or a provider whose availability never comes
+                    if (s.poll && sub.proxy) {
+                        st.polled = true;
+                        setInterval(() => {
+                            sub.proxy.getValue(s.member, 3000).then(got(s)).catch((e) => {
+                                const m = String(e).slice(0, 160);
+                                if (m !== st.readErr) { st.readErr = m; log.warn('BMW ' + s.name + ' read: ' + m); }
+                            });
+                        }, 3000);
+                    }
                 })
                 .catch((e) => { st.error = String(e).slice(0, 120); log.warn('BMW ' + s.name + ': ' + e); });
         } else {
@@ -95,6 +120,9 @@ function start(ctx) {
                     log.info('BMW ' + s.name + ': proxy up (' + s.iface + ')');
                     // availability first, subscribe to the event second - the same order watch() uses for
                     // fields (and the only order the binding was ever seen to call back availability on)
+                    setTimeout(() => {
+                        if (st.seenAvail === null) log.info('BMW ' + s.name + ': no word on availability (subscribeToAvailability ' + typeof p.subscribeToAvailability + ', isAvailable ' + (p.isAvailable ? p.isAvailable() : 'missing') + ')');
+                    }, 5000);
                     return ctx.signals.onAvailable(p, (a) => setAvail(st, s, a))
                         .then(() => ctx.signals.on(p, s.member, got(s), log))
                         .then(() => log.info('BMW ' + s.name + ': subscribed to ' + s.member))
@@ -103,7 +131,8 @@ function start(ctx) {
                 .catch((e) => { st.error = String(e).slice(0, 120); log.warn('BMW ' + s.name + ': ' + e); });
         }
     });
-    const live = (st) => st.available;
+    // a source that is asked: only while its answers keep coming
+    const live = (st) => st.available && (!st.polled || Date.now() - st.at < 15000 || !st.at);
     /** The first source with a valid limit; or, of those that answer, that there is none. */
     const best = () => {
         for (const s of SOURCES) {
@@ -139,4 +168,4 @@ function start(ctx) {
     return { best, view, state };
 }
 
-module.exports = { start, limitOf, SOURCES };
+module.exports = { start, limitOf, enumLimit, SOURCES };

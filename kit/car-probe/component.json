@@ -1,7 +1,7 @@
 {
   "id": "car-probe",
   "kind": "tool",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "title": "Car probe",
   "description": "Read-only: at install it looks at the head unit for the VietMap signs app (where BMW's own speed-limit sign can be read in the SOME/IP catalog, and what the app got) and prints it into the Store's log (phone page, Logs: updater). Changes nothing; remove it afterwards",
   "license": "MIT",
