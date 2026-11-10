@@ -6,7 +6,7 @@
 D=$(cd "$(dirname "$0")" && pwd)
 NODE=$(command -v node || echo /usr/bin/node)
 sec() { echo "== $*"; }
-echo "car-probe 0.2.2 begin $(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
+echo "car-probe 0.3.0 begin $(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
 
 sec "BMW speed-limit interfaces"
 "$NODE" "$D/probe-iface.js" 'TrafficSignDisplayControl|adasng\.CCP$|navigation\.ADAS$|fasus\.FASuS$|SignRecognitionFrontCamera$' \
@@ -31,7 +31,19 @@ else
     echo "app: not installed"
 fi
 
+sec "asked as root (read only)"
+# at most 40 s: the binding is the unit's own, a call that never returns must not hold the install
+OUT=/tmp/car-probe-read.$$
+"$NODE" "$D/probe-read.js" > "$OUT" 2>&1 &
+PID=$!
+n=0
+while kill -0 "$PID" 2>/dev/null && [ "$n" -lt 40 ]; do sleep 1; n=$((n + 1)); done
+kill -0 "$PID" 2>/dev/null && { kill -9 "$PID" 2>/dev/null; echo "read probe: stopped after 40 s"; }
+cut -c 1-1100 "$OUT"
+rm -f "$OUT"
+
 sec "someip native module"
+ls -l /usr/lib/someip.node 2>&1
 for p in /usr/lib /opt /var/opt/public/oap; do
     find "$p" -maxdepth 7 -type d -name someip -path '*node_modules*' 2>/dev/null | head -n 3
 done
