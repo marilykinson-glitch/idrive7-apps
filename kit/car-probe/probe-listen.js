@@ -15,7 +15,7 @@ const CATALOG = process.env.CP_CATALOG || '/etc/oap/someip/someip-interfaces.jso
 const SOMEIP = process.env.CP_SOMEIP || '/usr/lib/someip.node';
 const GEN = process.env.CP_GEN || path.join(__dirname, 'gen.js');
 const RUN_MS = Number(process.env.CP_RUN_MS) || 25 * 60000;
-const MAX_LINES = 600;
+const MAX_LINES = 800;
 
 if (process.argv[2] === 'stop') {
     try { process.kill(Number(fs.readFileSync(PID, 'utf8')), 'SIGTERM'); } catch (e) { /* none running */ }
@@ -24,11 +24,20 @@ if (process.argv[2] === 'stop') {
 }
 
 const TARGETS = [
-    { iface: 'de.bmw.environmentalmodel.SignRecognitionFrontCamera', broadcasts: ['TrafficSignRecognitionFrontCamera'] },
+    // the camera's signs, each in a few words (type, value, form, side, supplements); a new line when they change
+    { iface: 'de.bmw.environmentalmodel.SignRecognitionFrontCamera', broadcasts: ['TrafficSignRecognitionFrontCamera'], brief: (v) => {
+        if (!v || !Array.isArray(v.trafficSign)) return JSON.stringify(v);
+        const r = v.trafficSignRecognition || {};
+        return v.eventDataQualifier + ' ' + r.numberSigns + ' signs ' + r.speedLimitUnit + ': ' + v.trafficSign.slice(0, r.numberSigns === undefined ? 8 : r.numberSigns).map((g) => {
+            const p = g.position || {};
+            const sup = [g.firstSupplementalType, g.secondSupplementalType, g.additionalInfo].filter((x) => x && !/UNFILLED|NO_ADDITIONAL/.test(x));
+            return g.type + '=' + g.value + ' ' + g.trafficSignForm + (p.left ? ' L' : '') + (p.right ? ' R' : '') + (p.overhead ? ' top' : '') + (g.variable ? ' variable' : '') + (sup.length ? ' [' + sup.join(',') + ']' : '');
+        }).join(' | ');
+    } },
     { iface: 'de.bmw.infotainment.fasus.FASuS', attributes: { statusNextSpeedLimitRecognition: 's', statusRoadSignConfigStatus: 's' } },
     { iface: 'de.bmw.dass.driverassistanceapplications.TrafficSignDisplayControl', attributes: { displaySpeedLimitAndNoPassingRestriction: 's' } },
     { iface: 'de.bmw.infotainment.navigation.externalize.adasng.CCP', broadcasts: ['effectiveSpeedLimit', 'variableSpeedLimitSign'] },
-    { iface: 'de.bmw.infotainment.vehicle.Vehicle2', attributes: { statusCarSpeed2: 's' }, every: 10000 },
+    { iface: 'de.bmw.infotainment.vehicle.Vehicle2', attributes: { statusCarSpeed2: 's' }, every: 30000, brief: (v) => (v && v.speedVehicleCentreOfGravity !== undefined ? Math.round(v.speedVehicleCentreOfGravity * 0.015625) + ' km/h' : JSON.stringify(v)) },
 ];
 let lines = 0;
 const say = (s) => {
@@ -74,7 +83,7 @@ const tick = () => new Promise((r) => setImmediate(r));
                 let last = '', at = 0, n = 0;
                 await tick();
                 await p.subscribe({ name: m, onReceive: (v) => {
-                    const s = JSON.stringify(v === undefined ? null : v), now = Date.now();
+                    const s = (t.brief || JSON.stringify)(v === undefined ? null : v), now = Date.now();
                     n++;
                     // each new word; a signal that keeps changing (the speed) at most every t.every
                     if (s === last || (t.every && now - at < t.every)) return;

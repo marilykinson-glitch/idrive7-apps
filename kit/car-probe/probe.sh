@@ -6,7 +6,7 @@
 D=$(cd "$(dirname "$0")" && pwd)
 NODE=$(command -v node || echo /usr/bin/node)
 sec() { echo "== $*"; }
-echo "car-probe 0.4.0 begin $(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
+echo "car-probe 0.4.1 begin $(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
 
 sec "BMW speed-limit interfaces"
 "$NODE" "$D/probe-iface.js" 'TrafficSignDisplayControl|adasng\.CCP$|navigation\.ADAS$|fasus\.FASuS$|SignRecognitionFrontCamera$' \
@@ -44,7 +44,7 @@ rm -f "$OUT"
 
 sec "heard while driving (the last listen)"
 LDIR=/var/opt/public; [ -d "$LDIR" ] || LDIR=/tmp
-if [ -f "$LDIR/car-probe-listen.log" ]; then tail -n 220 "$LDIR/car-probe-listen.log" | cut -c 1-900; else echo "no listen yet"; fi
+if [ -f "$LDIR/car-probe-listen.log" ]; then tail -n 400 "$LDIR/car-probe-listen.log" | cut -c 1-900; else echo "no listen yet"; fi
 # a new listen, 25 minutes, on its own (stopped when car-probe is removed)
 "$NODE" "$D/probe-listen.js" stop
 if command -v systemd-run >/dev/null 2>&1; then
