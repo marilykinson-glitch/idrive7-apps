@@ -39,6 +39,7 @@ const TARGETS = [
     { iface: 'de.bmw.infotainment.navigation.externalize.adasng.CCP', broadcasts: ['effectiveSpeedLimit', 'variableSpeedLimitSign'] },
     { iface: 'de.bmw.infotainment.vehicle.Vehicle2', attributes: { statusCarSpeed2: 's' }, every: 30000, brief: (v) => (v && v.speedVehicleCentreOfGravity !== undefined ? Math.round(v.speedVehicleCentreOfGravity * 0.015625) + ' km/h' : JSON.stringify(v)) },
 ];
+const KEEP = [], HEARD = {};
 let lines = 0;
 const say = (s) => {
     if (lines++ > MAX_LINES) return;
@@ -51,6 +52,8 @@ fs.writeFileSync(PID, String(process.pid));
 process.on('SIGTERM', () => end('stopped'));
 say('listen begin ' + new Date().toISOString() + ', ' + Math.round(RUN_MS / 60000) + ' min');
 setTimeout(() => end('time'), RUN_MS);
+// every 3 minutes: how many words each has sent so far, so a silence is told from a deaf listener
+setInterval(() => say('heard so far: ' + (Object.keys(HEARD).map((k) => k.split('.').pop() + ' ' + HEARD[k]).join(', ') || 'nothing')), Number(process.env.CP_BEAT_MS) || 180000);
 
 let someip;
 try { someip = require(SOMEIP); } catch (e) { end('someip binding: ' + e.message); }
@@ -77,6 +80,7 @@ const tick = () => new Promise((r) => setImmediate(r));
             const cfg = generate(t, i);
             await tick();
             const p = await someip.buildProxy(cfg, '1').then((px) => px.init().then(() => px));
+            KEEP.push(p);       // held for good: a proxy nothing refers to is collected, and its subscriptions with it
             await tick();
             try { p.subscribeToAvailability((a) => say(tag + ': availability ' + !!a)); } catch (e) { /* older binding */ }
             for (const m of Object.keys(t.attributes || {}).concat(t.broadcasts || [])) {
@@ -85,6 +89,7 @@ const tick = () => new Promise((r) => setImmediate(r));
                 await p.subscribe({ name: m, onReceive: (v) => {
                     const s = (t.brief || JSON.stringify)(v === undefined ? null : v), now = Date.now();
                     n++;
+                    HEARD[tag + '.' + m] = n;
                     // each new word; a signal that keeps changing (the speed) at most every t.every
                     if (s === last || (t.every && now - at < t.every)) return;
                     last = s; at = now;

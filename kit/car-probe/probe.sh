@@ -6,7 +6,7 @@
 D=$(cd "$(dirname "$0")" && pwd)
 NODE=$(command -v node || echo /usr/bin/node)
 sec() { echo "== $*"; }
-echo "car-probe 0.4.1 begin $(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
+echo "car-probe 0.4.2 begin $(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
 
 sec "BMW speed-limit interfaces"
 "$NODE" "$D/probe-iface.js" 'TrafficSignDisplayControl|adasng\.CCP$|navigation\.ADAS$|fasus\.FASuS$|SignRecognitionFrontCamera$' \
