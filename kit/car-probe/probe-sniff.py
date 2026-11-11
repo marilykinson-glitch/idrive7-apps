@@ -39,6 +39,38 @@ def udp_of(frame):
         return None
     return frame[o + 8:] if len(frame) >= o + 8 else None
 
+CATALOG = '/etc/oap/someip/someip-interfaces.json'
+HOT = ('speed', 'limit', 'sign', 'adas', 'navgraph', 'horizon', 'ccp', 'fasus', 'sli')
+
+def names():
+    """{service id: (interface, {member id: 'kind member'})} from the unit's catalog."""
+    import json
+    out = {}
+    try:
+        db = json.load(open(CATALOG))
+    except Exception as e:
+        print('catalog: %s' % e)
+        return out
+    for name, i in (db.get('interfaces') or {}).items():
+        sid = i.get('serviceId')
+        if not isinstance(sid, int):
+            continue
+        mem = {}
+        for f, d in (i.get('fields') or {}).items():
+            for k in ('getter', 'setter', 'notifier'):
+                v = d.get(k) if isinstance(d, dict) else None
+                if isinstance(v, dict) and isinstance(v.get('id'), int) and v['id']:
+                    mem[v['id']] = k[:3] + ' ' + f
+        for kind in ('events', 'broadcasts', 'methods'):
+            for m, d in (i.get(kind) or {}).items():
+                if not isinstance(d, dict):
+                    continue
+                for k in ('eventId', 'id', 'methodId'):
+                    if isinstance(d.get(k), int):
+                        mem[d[k]] = kind[:3] + ' ' + m
+        out[sid] = (name, mem)
+    return out
+
 def main():
     try:
         s = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(3))
@@ -47,7 +79,7 @@ def main():
         return
     s.settimeout(1.0)
     frames = udp = 0
-    seen, shown, ifs = {}, 0, {}
+    seen, samples, ifs = {}, {}, {}
     end = time.time() + SECONDS
     while time.time() < end:
         try:
@@ -57,6 +89,10 @@ def main():
         except Exception as e:
             print('receive: %s' % e)
             break
+        if addr[0] != 'socnet0' and not addr[0].startswith('vlan'):
+            continue                # the car's network only; a VLAN's frames come on its own interface too
+        if addr[0] == 'socnet0' and frame[12:14] not in (b'\x81\x00', b'\x88\xa8'):
+            pass
         frames += 1
         ifs[addr[0]] = ifs.get(addr[0], 0) + 1
         p = udp_of(frame)
@@ -64,14 +100,26 @@ def main():
             continue
         udp += 1
         for svc, meth, typ, body in someip(p):
-            k = '%04x:%04x' % (svc, meth)
+            k = (svc, meth)
             seen[k] = seen.get(k, 0) + 1
-            if svc == WANT and shown < 20:
-                shown += 1
-                print('0xb51d method %d type 0x%02x on %s, %d bytes: %s' % (meth, typ, addr[0], len(body), binascii.hexlify(body[:96]).decode()))
+            sm = samples.setdefault(k, [])
+            h = binascii.hexlify(body[:80]).decode()
+            if len(sm) < 3 and h not in sm:
+                sm.append(h)
     print('%d frames, %d UDP, on %s' % (frames, udp, ', '.join('%s %d' % kv for kv in sorted(ifs.items())) or 'no interface'))
-    top = sorted(seen.items(), key=lambda kv: -kv[1])[:25]
-    print('SOME/IP service:method seen: ' + (', '.join('%s x%d' % kv for kv in top) or 'none'))
-    print('service 0xb51d: %d message(s)' % sum(v for k, v in seen.items() if k.startswith('b51d')))
+    cat = names()
+    rows = []
+    for (svc, meth), n in seen.items():
+        iface, mem = cat.get(svc, ('?', {}))
+        rows.append((n, svc, meth, iface, mem.get(meth, '?')))
+    rows.sort(key=lambda r: (r[3], r[2]))
+    print('%d SOME/IP members seen (count service:method interface member):' % len(rows))
+    for n, svc, meth, iface, member in rows[:140]:
+        hot = any(w in (iface + ' ' + member).lower() for w in HOT) or svc in (WANT, 0xb51c)
+        line = 'x%d %04x:%04x %s %s' % (n, svc, meth, iface.replace('de.bmw.', ''), member)
+        if hot:
+            line += ' | ' + ' / '.join(samples.get((svc, meth), []))
+        print(line)
+    print('service 0xb51d: %d message(s)' % sum(v for k, v in seen.items() if k[0] == WANT))
 
 main()

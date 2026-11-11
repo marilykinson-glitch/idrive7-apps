@@ -6,7 +6,7 @@
 D=$(cd "$(dirname "$0")" && pwd)
 NODE=$(command -v node || echo /usr/bin/node)
 sec() { echo "== $*"; }
-echo "car-probe 0.5.1 begin $(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
+echo "car-probe 0.5.2 begin $(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
 
 sec "BMW speed-limit interfaces"
 "$NODE" "$D/probe-iface.js" 'TrafficSignDisplayControl|adasng\.CCP$|navigation\.ADAS$|fasus\.FASuS$|SignRecognitionFrontCamera$' \
@@ -55,10 +55,10 @@ done
 [ -z "$PY" ] && PY=$(find /opt /var/opt /usr/local /usr/lib -maxdepth 5 -type f -name 'python3*' ! -name '*.so*' ! -name '*-config' 2>/dev/null | head -n 1)
 if [ -n "$PY" ]; then
     echo "python: $PY"
-    "$PY" "$D/probe-sniff.py" 15 2>&1 | cut -c 1-700 &
+    "$PY" "$D/probe-sniff.py" 30 2>&1 | cut -c 1-700 &
     SPID=$!
     n=0
-    while kill -0 "$SPID" 2>/dev/null && [ "$n" -lt 25 ]; do sleep 1; n=$((n + 1)); done
+    while kill -0 "$SPID" 2>/dev/null && [ "$n" -lt 45 ]; do sleep 1; n=$((n + 1)); done
     kill -9 "$SPID" 2>/dev/null
 else
     echo "no python on this unit (the Store has one: mgu-python)"
