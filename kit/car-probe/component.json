@@ -1,7 +1,7 @@
 {
   "id": "car-probe",
   "kind": "tool",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "title": "Car probe",
   "description": "Read-only: at install it asks the car (as root, reading only) where BMW's own speed limit can be read and prints it into the Store's log (phone page, Logs: updater), then listens for 25 minutes to what the car sends while driving; the next install prints that. Changes nothing in the car; remove it afterwards",
   "license": "MIT",
@@ -32,6 +32,10 @@
     },
     {
       "path": "probe-listen.js",
+      "mode": "0644"
+    },
+    {
+      "path": "probe-sniff.py",
       "mode": "0644"
     },
     {

@@ -6,7 +6,7 @@
 D=$(cd "$(dirname "$0")" && pwd)
 NODE=$(command -v node || echo /usr/bin/node)
 sec() { echo "== $*"; }
-echo "car-probe 0.5.0 begin $(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
+echo "car-probe 0.5.1 begin $(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
 
 sec "BMW speed-limit interfaces"
 "$NODE" "$D/probe-iface.js" 'TrafficSignDisplayControl|adasng\.CCP$|navigation\.ADAS$|fasus\.FASuS$|SignRecognitionFrontCamera$' \
@@ -47,18 +47,21 @@ rm -f "$OUT"
 sec "the map's limit on its way to the car (service 0xb51d)"
 for t in tcpdump tshark dumpcap; do command -v "$t" >/dev/null 2>&1 && echo "has $t: $(command -v "$t")"; done
 ip -o link 2>/dev/null | cut -d: -f2 | tr -d ' ' | tr '\n' ' '; echo
-if command -v tcpdump >/dev/null 2>&1; then
-    CAP=/tmp/car-probe-cap.$$
-    tcpdump -i any -n -c 12 -x -s 200 'udp and udp[8:2]=0xb51d' > "$CAP" 2>&1 &
-    CPID=$!
+# no tcpdump here (seen on the car): Python with a raw socket, if the unit has one (mgu-python or its own)
+PY=""
+for c in python3 python /opt/mgu-python/bin/python3 /var/opt/mgu-python/bin/python3 /usr/local/bin/python3; do
+    p=$(command -v "$c" 2>/dev/null) && [ -n "$p" ] && { PY=$p; break; }
+done
+[ -z "$PY" ] && PY=$(find /opt /var/opt /usr/local /usr/lib -maxdepth 5 -type f -name 'python3*' ! -name '*.so*' ! -name '*-config' 2>/dev/null | head -n 1)
+if [ -n "$PY" ]; then
+    echo "python: $PY"
+    "$PY" "$D/probe-sniff.py" 15 2>&1 | cut -c 1-700 &
+    SPID=$!
     n=0
-    while kill -0 "$CPID" 2>/dev/null && [ "$n" -lt 12 ]; do sleep 1; n=$((n + 1)); done
-    kill "$CPID" 2>/dev/null
-    sleep 1
-    head -n 90 "$CAP" | cut -c 1-160
-    rm -f "$CAP"
+    while kill -0 "$SPID" 2>/dev/null && [ "$n" -lt 25 ]; do sleep 1; n=$((n + 1)); done
+    kill -9 "$SPID" 2>/dev/null
 else
-    echo "no tcpdump on this unit"
+    echo "no python on this unit (the Store has one: mgu-python)"
 fi
 
 sec "heard while driving (the last listen)"
