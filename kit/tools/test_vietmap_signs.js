@@ -126,7 +126,7 @@ function sendNoAnswer(msg) {
 
     // --- settings: the defaults without the app, then the app's ---
     let d = vms.desired(Date.now());
-    assert.deepStrictEqual(d, { app: null, on: true, show: 'both', side: 'right', hudSide: 'left', size: 'medium', bmw: 'hide', screen: true, warn: 5, mapPos: null, hudPos: null });
+    assert.deepStrictEqual(d, { app: null, on: true, show: 'both', side: 'right', hudSide: 'left', size: 'medium', bmw: 'hide', screen: true, camera: true, warn: 5, mapPos: null, hudPos: null });
     vms._reset();
     const app = installApp(12301, 'vietmap_signs2');
     assert.strictEqual(vms.desired(Date.now()).app, 'vietmap_signs2');
@@ -348,7 +348,7 @@ function sendNoAnswer(msg) {
     await until(() => grabs().length > k + 1, 'another picture');
     assert(!/--geometry/.test(grabs()[grabs().length - 1]), 'no --geometry now');
 
-    // --- faster than the sign: the sign beats and blinks red; not while slower, nor with the warning off ---
+    // --- faster than the sign: the sign flashes (a step animation of scale 1 / 0), as BMW's own does ---
     vms.CFG.grabber = path.join(T, 'no-grabber');
     app.settings({});
     woc({ state: 'showing', cluster: 1, hud: 1, hud_state: 'showing' });
@@ -357,21 +357,22 @@ function sendNoAnswer(msg) {
     await sleep(700);
     speedIs(70);
     a = await send({ t: 'vms', v: 1, seq: 30, limit: 60 });
+    const px0 = calls('pixels').length;
     let w = vms.tick();
     assert.strictEqual(w.over, true, '70 is over 60 + 5');
     const anims = calls('animate');
-    assert(anims.length >= 2 && anims.every((c) => c[2].property === 'scale' && c[2].loop === true), 'both signs beat');
-    const px1 = calls('pixels').length;
+    assert(anims.length >= 2 && anims.every((c) => c[2].property === 'scale' && c[2].loop === true && c[2].interp === 'step'), 'both signs flash');
+    assert(/^0:1,1,1 \d+:0,0,0 \d+:1,1,1$/.test(anims[0][2].keys), 'on, off, on: ' + anims[0][2].keys);
     vms.tick();
     vms.tick();
-    assert(calls('pixels').length >= px1 + 2, 'and blink');
+    assert.strictEqual(calls('pixels').length, px0, 'the sign itself is not redrawn to flash');
     assert.strictEqual(status().over, true);
     assert.strictEqual(status().speed, 70);
     speedIs(64);
     a = await send({ t: 'vms', v: 1, seq: 31, limit: 60 });
     w = vms.tick();
     assert.strictEqual(w.over, false, '64 is within 60 + 5');
-    assert(calls('stop').length >= 2, 'the beat stops');
+    assert(calls('stop').length >= 2, 'the flashing stops');
     app.settings({ warn: '0' });
     speedIs(61);
     a = await send({ t: 'vms', v: 1, seq: 32, limit: 60 });
@@ -383,6 +384,73 @@ function sendNoAnswer(msg) {
     fs.writeFileSync(speedFile, JSON.stringify({ at: new Date(Date.now() - 10000).toISOString(), kmh: 120 }));
     a = await send({ t: 'vms', v: 1, seq: 33, limit: 60 });
     assert.strictEqual(vms.tick().over, false, 'an old speed warns of nothing');
+
+    // --- BMW's front camera: what a car's limit is among the signs it sees ---
+    const camera = require(path.join(__dirname, '..', 'vietmap-signs', 'camera.js'));
+    const ev = (signs) => ({ eventDataQualifier: 'EVENT_DATA_AVAILABLE', trafficSignRecognition: { numberSigns: signs.length, speedLimitUnit: 'KM_H' },
+        trafficSign: signs.map((x) => Object.assign({ value: 0, trafficSignForm: 'ROUND', firstSupplementalType: 'SIGNAL_UNFILLED',
+            secondSupplementalType: 'SIGNAL_UNFILLED', additionalInfo: 'NO_ADDITIONAL_RESTRICTION' }, x)) });
+    const SL = (value, plate) => Object.assign({ type: 'SPEED_LIMIT', value }, plate ? { firstSupplementalType: plate } : {});
+    assert.deepStrictEqual(camera.pick(ev([SL(60, 'SS_TRUCK'), { type: 'NO_STANDING_ANYTIME' }, SL(80)])), { limit: 80, end: false, values: [60, 80], single: true }, 'the truck\'s 60 is not ours');
+    assert.strictEqual(camera.pick(ev([SL(60, 'SS_TRAILER'), SL(80, 'GENERIC_SUPPLEMENTAL')])).limit, 80);
+    assert.deepStrictEqual(camera.pick(ev([SL(50), SL(50), SL(50), SL(60)])), { limit: 50, end: false, values: [50, 50, 50, 60], single: false }, 'most of them');
+    assert.strictEqual(camera.pick(ev([SL(60), SL(80)])).limit, 80, 'a tie: the higher');
+    assert.strictEqual(camera.pick(ev([SL(60, 'SS_RAIN')])).limit, 0, 'only in the rain');
+    assert.strictEqual(camera.pick(ev([{ type: 'NO_ENTRY' }])), null, 'no speed limit: nothing');
+    assert.strictEqual(camera.pick(ev([SL(57)])), null, 'not a limit a sign carries');
+    assert.strictEqual(camera.pick(ev([{ type: 'END_OF_SPEED_LIMIT', value: 60 }])).end, true);
+    assert.strictEqual(camera.pick(Object.assign(ev([SL(60)]), { eventDataQualifier: 'EVENT_DATA_NOT_AVAILABLE' })), null);
+    // held until another, an end, or 3 km; a change next to another limit once a second event agrees
+    const cs = camera.createState({ holdKm: 3 });
+    let t0 = 1000000;
+    assert.strictEqual(camera.onEvent(cs, ev([SL(80), SL(60, 'SS_TRUCK')]), t0), 80);
+    assert.strictEqual(camera.onEvent(cs, ev([SL(60), SL(50)]), t0 + 1000), 80, 'not yet: two limits, first time');
+    assert.strictEqual(camera.onEvent(cs, ev([SL(60), SL(50)]), t0 + 3000), 60, 'the second event agrees');
+    assert.strictEqual(camera.onEvent(cs, ev([SL(40)]), t0 + 4000), 40, 'alone in its event: at once');
+    camera.onSpeed(cs, { speedVehicleCentreOfGravity: 3840 }, t0 + 4000);           // 60 km/h
+    for (let k = 1; k <= 200; k++) camera.onSpeed(cs, { speedVehicleCentreOfGravity: 3840 }, t0 + 4000 + k * 1000);   // 200 s: 3.3 km
+    assert.strictEqual(camera.speed(cs, t0 + 204000), 60);
+    assert.strictEqual(camera.current(cs, t0 + 204000), 0, 'dropped after 3 km');
+    camera.onEvent(cs, ev([SL(50)]), t0 + 205000);
+    assert.strictEqual(camera.onEvent(cs, ev([{ type: 'END_OF_SPEED_LIMIT' }]), t0 + 206000), 0, 'an end sign ends it');
+    camera.onSpeed(cs, { speedVehicleCentreOfGravity: 65535 }, t0 + 207000);
+    assert.strictEqual(cs.speed, 60, 'the invalid value is not a speed');
+
+    // the camera's sign comes before the phone's; off in the settings, the phone's again
+    const C = vms._cam;
+    a = await send({ t: 'vms', v: 1, seq: 40, limit: 60 });
+    camera.onEvent(C, ev([SL(80)]), Date.now());
+    w = vms.tick();
+    assert.deepStrictEqual([w.limit, w.source], [80, 'camera']);
+    assert.strictEqual(status().camera.limit, 80);
+    app.settings({ camera: 'off' });
+    a = await send({ t: 'vms', v: 1, seq: 41, limit: 60 });
+    w = vms.tick();
+    assert.deepStrictEqual([w.limit, w.source], [60, 'phone']);
+    app.settings({});
+    // the camera's own speed comes before the app's file
+    camera.onSpeed(C, { speedVehicleCentreOfGravity: 6400 }, Date.now());      // 100 km/h
+    a = await send({ t: 'vms', v: 1, seq: 42, limit: 60 });
+    w = vms.tick();
+    assert.deepStrictEqual([w.speed, w.over], [100, true], 'over the camera\'s 80');
+
+    // camera.start: BMW's generator makes the descriptions, the binding subscribes to both and keeps them
+    const genFake = path.join(T, 'gen-fake.js');
+    fs.writeFileSync(genFake, `const fs = require('fs'); const [db, man, uid, out] = process.argv.slice(2);
+const m = JSON.parse(fs.readFileSync(man, 'utf8')); const i = Object.keys(m.proxies)[0];
+fs.mkdirSync(out); fs.writeFileSync(out + '/' + i.replace(/\\./g, '_') + '.json', JSON.stringify({ name: i, m: m.proxies[i] }));`);
+    const subs = [];
+    const fakeBinding = { buildProxy: (cfg, inst) => Promise.resolve({ init: () => Promise.resolve(), subscribeToAvailability: (f) => f(true),
+        subscribe: (o) => { subs.push([cfg.name, o.name]); if (o.name === 'TrafficSignRecognitionFrontCamera') setTimeout(() => o.onReceive(ev([SL(70)])), 10); return Promise.resolve(); } }) };
+    const cs2 = camera.createState();
+    const lines = [];
+    const held = camera.start(cs2, { run: path.join(T, 'camrun'), catalog: '/nowhere.json', gen: genFake, someip: fakeBinding, log: (l) => lines.push(l) });
+    fs.mkdirSync(path.join(T, 'camrun'), { recursive: true });
+    for (let k = 0; k < 100 && !(cs2.ready && cs2.limit); k++) await sleep(30);
+    assert.strictEqual(cs2.limit, 70, lines.join(' / '));
+    assert.deepStrictEqual(subs.map((x) => x[1]).sort(), ['TrafficSignRecognitionFrontCamera', 'statusCarSpeed2']);
+    assert.strictEqual(held.length, 2, 'the proxies are kept');
+    assert(fs.existsSync(path.join(T, 'camrun', 'someip', 'camera', 'de_bmw_environmentalmodel_SignRecognitionFrontCamera.json')));
 
     console.log('vietmap-signs: all checks passed');
     process.exit(0);

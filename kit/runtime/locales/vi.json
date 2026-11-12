@@ -305,5 +305,14 @@
   "5 km/h above": "Vượt 5 km/h",
   "10 km/h above": "Vượt 10 km/h",
   "Speed": "Tốc độ",
-  "OVER THE SIGN": "VƯỢT TỐC ĐỘ"
+  "OVER THE SIGN": "VƯỢT TỐC ĐỘ",
+  "The speed sign on the cluster": "Biển tốc độ trên đồng hồ",
+  "BMW camera's sign first": "Ưu tiên biển camera BMW",
+  "Off: VietMap's only": "Tắt: chỉ biển VietMap",
+  "BMW camera": "Camera BMW",
+  "no speed sign now": "chưa thấy biển tốc độ",
+  "seen": "đã thấy",
+  "BMW camera's sign": "Biển camera BMW",
+  "From VietMap": "Từ VietMap",
+  "Read the sign on the centre screen (CarPlay) - experimental, can misread": "Đọc biển trên màn giữa (CarPlay) - thử nghiệm, có thể đọc sai"
 }

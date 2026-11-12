@@ -1848,5 +1848,14 @@
   "Sign position on the HUD": "HUD 표지판 위치",
   "Read the sign on the centre screen (CarPlay)": "중앙 화면에서 표지판 읽기 (CarPlay)",
   "Warn when faster than the sign": "표지판보다 빠를 때 경고",
-  "Above the sign": "표지판 초과"
+  "Above the sign": "표지판 초과",
+  "The speed sign on the cluster": "계기판의 속도 표지판",
+  "BMW camera's sign first": "BMW 카메라 표지판 우선",
+  "Off: VietMap's only": "끄기: VietMap 표지판만",
+  "BMW camera": "BMW 카메라",
+  "no speed sign now": "속도 표지판 없음",
+  "seen": "인식됨",
+  "BMW camera's sign": "BMW 카메라 표지판",
+  "From VietMap": "VietMap에서",
+  "Read the sign on the centre screen (CarPlay) - experimental, can misread": "중앙 화면에서 표지판 읽기 (CarPlay) - 실험적, 잘못 읽을 수 있음"
 }

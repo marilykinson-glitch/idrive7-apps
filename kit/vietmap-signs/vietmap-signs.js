@@ -3,6 +3,10 @@
  * vietmap-signs - the root helper of the VietMap signs app (apps/vietmap_signs): the speed-limit sign
  * VietMap Live shows on the phone, drawn on the instrument cluster's map and on the HUD.
  *
+ * The sign comes first from BMW's own front camera (camera.js: the signs it recognises, read as root
+ * from the unit's SOME/IP binding; apps are not given them), then from the phone, then (off by default)
+ * from a picture of the centre screen. Faster than the sign, it flashes as BMW's own sign does.
+ *
  * The phone app (android/vmsign) reads the number in VietMap Live's speed bubble and sends it over the
  * car's Wi-Fi, a small JSON datagram on UDP 8471 at each change and once a second:
  *     {"t":"vms","v":1,"seq":12,"limit":60}          limit 0: no sign
@@ -33,13 +37,14 @@
 const fs = require('fs');
 const jpeg = require('./jpeg');
 const signread = require('./signread');
+const camera = require('./camera');
 const os = require('os');
 const path = require('path');
 const cp = require('child_process');
 const dgram = require('dgram');
 const zlib = require('zlib');
 
-const VERSION = '0.4.0';
+const VERSION = '0.5.0';
 const env = (k, d) => (process.env[k] !== undefined && process.env[k] !== '' ? process.env[k] : d);
 const CFG = {
     oap: env('VMS_OAP', '/var/opt/public/oap'),
@@ -62,6 +67,12 @@ const CFG = {
     screenMs: Number(env('VMS_SCREEN_MS', 1000)),
     screenGeometry: env('VMS_SCREEN_GEOMETRY', '960x360'),
     screenStaleMs: Number(env('VMS_SCREEN_STALE_MS', 4000)),
+    // BMW's front camera's signs (camera.js), read as root from the unit's SOME/IP binding
+    camera: env('VMS_CAMERA', '1') !== '0',
+    someip: env('VMS_SOMEIP', '/usr/lib/someip.node'),
+    catalog: env('VMS_CATALOG', '/etc/oap/someip/someip-interfaces.json'),
+    gen: env('VMS_GEN', path.join(__dirname, 'gen.js')),
+    camHoldKm: Number(env('VMS_CAMERA_HOLD_KM', 3)),
 };
 const APP = /^vietmap_signs\d*$/;          // the app's id (the Store may install it as vietmap_signs2)
 const NFT_COMMENT = 'vietmap-signs';
@@ -174,9 +185,9 @@ function sign(limit, S, warn) {
     return signCache.get(key);
 }
 
-/* the warning while faster than the sign: the sign beats (the renderer's own animation, nothing sent per
-   frame) and turns red with white digits every other look (twice a second at the 500 ms look) */
-const PULSE = '0:1,1,1 260:1.22,1.22,1 520:1,1,1';
+/* the warning while faster than the sign, as BMW's own cluster does it: the sign as it is, flashing, on
+   0.6 s and off 0.4 s (the renderer's own animation, scale 1 / 0 in steps; nothing sent per frame) */
+const BLINK = { property: 'scale', keys: '0:1,1,1 600:0,0,0 1000:1,1,1', loop: true, interp: 'step' };
 
 /* ---------------- the app: where it is and what it asks for ---------------- */
 
@@ -202,7 +213,7 @@ function findApp(now) {
     return null;
 }
 
-const DEFAULTS = { mode: 'on', show: 'both', side: 'right', hudSide: 'left', size: 'medium', bmw: 'hide', screen: 'on', warn: '5' };
+const DEFAULTS = { mode: 'on', show: 'both', side: 'right', hudSide: 'left', size: 'medium', bmw: 'hide', screen: 'on', warn: '5', camera: 'on' };
 const WARN = { off: null, '0': 0, '5': 5, '10': 10 };
 const POS_KEYS = ['mapX', 'mapY', 'hudX', 'hudY'];
 const PREVIEW_LIMIT = 60;
@@ -228,6 +239,7 @@ function desired(now) {
         size: SIZES[values.size] ? values.size : 'medium',
         bmw: values.bmw === 'show' ? 'show' : 'hide',
         screen: values.screen !== 'off',
+        camera: values.camera !== 'off',
         // warn above the sign by this much (km/h), or null: no warning
         warn: Object.prototype.hasOwnProperty.call(WARN, String(values.warn)) ? WARN[String(values.warn)] : 5,
         mapPos: pos('mapX', 'mapY'),
@@ -235,8 +247,10 @@ function desired(now) {
     };
 }
 
-/** The car's speed (km/h), as the app writes it (data/speed.json, from Vehicle2.statusCarSpeed2); null when old. */
+/** The car's speed (km/h): read here (camera.js), else as the app writes it (data/speed.json); null when old. */
 function carSpeed(now) {
+    const own = camera.speed(cam, now);
+    if (own !== null) return own;
     const app = findApp(now);
     if (!app) return null;
     const f = path.join(app.root, 'data', 'speed.json');
@@ -434,9 +448,8 @@ function applyLayers(want) {
             L = layers[t] = { ref, size: w.size, x: w.x, y: w.y, limit: null, look: null, anim: 0, visible: false, guide: w.guide };
             renderer.layers[t] = { state: 'made', reason: null };
         }
-        const look = want.warn && want.blink ? 'warn' : 'plain';
-        if (L.limit !== want.limit || L.look !== look) { cr.pixels(L.ref, null, sign(want.limit, w.size, look === 'warn')); L.limit = want.limit; L.look = look; }
-        if (want.warn && !L.anim) L.anim = cr.animate(L.ref, { property: 'scale', keys: PULSE, loop: true }) || 0;
+        if (L.limit !== want.limit) { cr.pixels(L.ref, null, sign(want.limit, w.size)); L.limit = want.limit; }
+        if (want.warn && !L.anim) L.anim = cr.animate(L.ref, BLINK) || 0;
         if (!want.warn && L.anim) { cr.stop(L.ref, L.anim); L.anim = 0; }
         if (L.x !== w.x || L.y !== w.y) { cr.set(L.ref, { x: w.x, y: w.y }); L.x = w.x; L.y = w.y; }
         if (L.guide !== w.guide) { cr.set(L.ref, { guide_hold: w.guide }); L.guide = w.guide; }
@@ -447,7 +460,7 @@ function applyLayers(want) {
 /* ---------------- one look ---------------- */
 
 let last = { shown: [], why: '', limit: null };
-let blink = false;
+const cam = camera.createState({ holdKm: CFG.camHoldKm });
 let lastWrite = 0, lastKey = '';
 
 /* ---------------- the centre screen: the sign in a picture of it ---------------- */
@@ -542,13 +555,16 @@ function decide(now) {
     const woc = wocStatus(now);
     const fresh = phone.at && now - phone.at < CFG.phoneStaleMs;
     const placing = preview(now);
-    // the centre screen is read while the phone says nothing and the sign could show
-    const reading = d.on && d.screen && !fresh && !placing && (woc.map || woc.hud) && renderer.installed !== false
+    // BMW's front camera's sign first, then the phone's (VietMap), then the centre screen's
+    const camLimit = d.on && d.camera ? camera.current(cam, now, log) : 0;
+    // the centre screen is read while neither the camera nor the phone has a sign and the sign could show
+    const reading = d.on && d.screen && !camLimit && !fresh && !placing && (woc.map || woc.hud) && renderer.installed !== false
         && (fs.existsSync(CFG.grabber) || !path.isAbsolute(CFG.grabber));
     if (reading && !screen.running && now - screen.startedAt >= CFG.screenMs) shootScreen(now);
     const onScreen = reading ? screenSign(now) : 0;
-    // the phone's sign first, then the centre screen's; while it is being placed, 60 without either
-    const limit = fresh && phone.limit ? phone.limit : onScreen ? onScreen : placing ? PREVIEW_LIMIT : null;
+    // while it is being placed, 60 without any
+    const source = camLimit ? 'camera' : fresh && phone.limit ? 'phone' : onScreen ? 'screen' : placing ? 'preview' : null;
+    const limit = camLimit || (fresh && phone.limit) || onScreen || (placing ? PREVIEW_LIMIT : null);
     const bmw = bmwSign(now);
     const bmwShows = !!(bmw && bmw.fresh && bmw.valid && bmw.limit > 0);
     const suppress = d.bmw === 'hide' && bmwShows;
@@ -565,14 +581,14 @@ function decide(now) {
     else if (placing) why = !renderer.installed ? 'cluster-render is not installed' : !woc.known ? 'Waze on cluster is not installed'
         : !(wantMap && woc.map) && !(wantHud && woc.hud) ? 'Waze on cluster shows no map there' : '';
     else if (reading && !limit) why = screen.error ? 'the centre screen cannot be read' : 'no sign on the centre screen';
-    else if (!phone.at && !reading) why = 'no phone yet';
-    else if (!fresh && !reading) why = 'the phone stopped sending';
+    else if (!limit && !phone.at) why = 'no phone yet';
+    else if (!limit && !fresh) why = 'the phone stopped sending';
     else if (!limit) why = 'no sign in VietMap';
     else if (suppress) why = 'BMW shows its own sign';
     else if (!renderer.installed) why = 'cluster-render is not installed';
     else if (!woc.known) why = 'Waze on cluster is not installed';
     else if (!(wantMap && woc.map) && !(wantHud && woc.hud)) why = 'Waze on cluster shows no map there';
-    return { d, woc, placing, reading, speed, over, source: fresh && phone.limit ? 'phone' : onScreen ? 'screen' : placing ? 'preview' : null, bmw: bmw ? { limit: bmw.limit, valid: bmw.valid, fresh: bmw.fresh, suppress } : null, limit, map, hud, why };
+    return { d, woc, placing, reading, speed, over, source, bmw: bmw ? { limit: bmw.limit, valid: bmw.valid, fresh: bmw.fresh, suppress } : null, limit, map, hud, why };
 }
 
 function tick() {
@@ -580,11 +596,10 @@ function tick() {
     if (now - fw.checkedAt >= CFG.ruleMs) ensureRules(now);
     if (!cr) startRenderer();
     const s = decide(now);
-    blink = s.over ? !blink : false;
-    applyLayers({ limit: s.limit, map: s.map, hud: s.hud, warn: s.over, blink });
+    applyLayers({ limit: s.limit, map: s.map, hud: s.hud, warn: s.over });
     last = { shown: ['map', 'hud'].filter((t) => s[t].visible), why: s.why, limit: s.limit };
     const key = JSON.stringify([last, s.bmw, renderer, fw.error, s.d, s.placing, s.reading, s.over, s.woc.map, s.woc.hud, phone.from, phone.bad, phone.ignored,
-        screen.limit, screen.error, screen.shots]);
+        screen.limit, screen.error, screen.shots, cam.limit, cam.signs, cam.ready, cam.error, cam.up]);
     if (key !== lastKey || now - lastWrite > 2000) { writeStatus(s, now); lastKey = key; lastWrite = now; }
     return s;
 }
@@ -604,6 +619,9 @@ function writeStatus(s, now) {
         firewall: { present: fw.present, rules: fw.rules, error: fw.error },
         source: s.source,
         speed: s.speed, over: s.over,
+        camera: { on: s.d.camera, ready: cam.ready, error: cam.error, up: cam.up, limit: cam.limit,
+            at: cam.at ? new Date(cam.at).toISOString() : null, km: Math.round(cam.km * 10) / 10, seen: cam.signs,
+            events: cam.events, last_event: cam.lastEventAt ? new Date(cam.lastEventAt).toISOString() : null },
         screen: { on: s.d.screen, reading: s.reading, limit: screen.limit, at: screen.at ? new Date(screen.at).toISOString() : null,
             shots: screen.shots, ms: screen.ms, decode_ms: screen.decodeMs, rings: screen.rings, error: screen.error,
             geometry: screen.geometry || 'full' },
@@ -645,6 +663,7 @@ function run() {
     };
     // a datagram shows (or hides) the sign at once, not at the next look
     listen(() => { try { tick(); } catch (e) { log('tick: ' + e); } });
+    if (CFG.camera) camera.start(cam, { run: CFG.run, catalog: CFG.catalog, gen: CFG.gen, someip: CFG.someip, log });
     const quit = (sig) => {
         log('stopping (' + sig + ')');
         clearTimeout(timer);
@@ -679,6 +698,6 @@ if (require.main === module) {
 
 module.exports = {
     VERSION, CFG, SIZES, drawSign, desired, findApp, wocStatus, geometry, decide, tick, parsePacket, allowedSender,
-    ensureRules, removeRules, ourRules, listen, phone, renderer, layers, _last: () => last,
+    ensureRules, removeRules, ourRules, listen, phone, renderer, layers, _last: () => last, _cam: cam, BLINK,
     _reset: () => { appCache = null; appScanAt = 0; },
 };

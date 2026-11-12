@@ -1,29 +1,75 @@
 {
   "id": "vietmap-signs",
   "kind": "tool",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "title": "VietMap signs helper",
-  "description": "Takes the speed-limit sign the VietMap signs phone app sends over the car's Wi-Fi (UDP 8471, one firewall rule per Wi-Fi interface while it runs) and draws it over Waze on cluster's map on the cluster and the HUD through cluster-render; patches nothing",
+  "description": "Draws the speed-limit sign over Waze on cluster's map on the cluster and the HUD through cluster-render: first the one BMW's own front camera recognises (read as root from the car's SOME/IP, reading only), else the one the VietMap signs phone app sends over the car's Wi-Fi (UDP 8471, one firewall rule per Wi-Fi interface while it runs); flashes while faster than it; patches nothing",
   "license": "MIT",
-  "mguHmi": ["ID7"],
+  "mguHmi": [
+    "ID7"
+  ],
   "uninstallable": true,
-  "requires": { "mgu-deploy": "0.7.11" },
+  "requires": {
+    "mgu-deploy": "0.7.11"
+  },
   "files": [
-    { "path": "vietmap-signs.js", "mode": "0644" },
-    { "path": "digits.json", "mode": "0644" },
-    { "path": "jpeg.js", "mode": "0644" },
-    { "path": "signread.js", "mode": "0644" },
-    { "path": "digit-templates.json", "mode": "0644" },
-    { "path": "LICENSE", "mode": "0644" },
-    { "path": "OFL-Inter.txt", "mode": "0644" }
+    {
+      "path": "vietmap-signs.js",
+      "mode": "0644"
+    },
+    {
+      "path": "camera.js",
+      "mode": "0644"
+    },
+    {
+      "path": "gen.js",
+      "mode": "0644"
+    },
+    {
+      "path": "digits.json",
+      "mode": "0644"
+    },
+    {
+      "path": "jpeg.js",
+      "mode": "0644"
+    },
+    {
+      "path": "signread.js",
+      "mode": "0644"
+    },
+    {
+      "path": "digit-templates.json",
+      "mode": "0644"
+    },
+    {
+      "path": "LICENSE",
+      "mode": "0644"
+    },
+    {
+      "path": "OFL-Inter.txt",
+      "mode": "0644"
+    }
   ],
   "units": [
-    { "name": "vietmap-signs.service" }
+    {
+      "name": "vietmap-signs.service"
+    }
   ],
   "enable": [
-    { "unit": "vietmap-signs.service", "target": "oapcontroller.service" }
+    {
+      "unit": "vietmap-signs.service",
+      "target": "oapcontroller.service"
+    }
   ],
-  "recmgr": ["vietmap-signs"],
-  "restart": ["vietmap-signs.service"],
-  "deactivate": ["node", "vietmap-signs.js", "deactivate"]
+  "recmgr": [
+    "vietmap-signs"
+  ],
+  "restart": [
+    "vietmap-signs.service"
+  ],
+  "deactivate": [
+    "node",
+    "vietmap-signs.js",
+    "deactivate"
+  ]
 }

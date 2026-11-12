@@ -9,6 +9,8 @@ cluster and the HUD. A tool in this repository's `mgu-repo.json`, installed by t
 | `vietmap-signs.js` | the service (`run`), the Store's removal hook (`deactivate`), `status`, `sign <n> <size>` (an RGBA dump) |
 | `vietmap-signs.service` | runs it as root, restarted on exit |
 | `digits.json` | the sign's digits, Inter Bold baked by `kit/tools/bake_sign_digits.py` (OFL-Inter.txt) |
+| `camera.js` | BMW's front camera's signs and the car's speed, as root from the unit's SOME/IP binding (`/usr/lib/someip.node`); `pick()` makes a car's limit of what the camera sees |
+| `gen.js` | BMW's interface generator, loaded from the unit's firmware (as `kit/tools/oapgen`), for camera.js's descriptions in `/run/vietmap-signs/someip/` |
 | `jpeg.js`, `signread.js`, `digit-templates.json` | the centre screen's sign: a baseline JPEG decoder, the ring and digit reader, its templates |
 | `component.json` | the tool for the deploy tool |
 

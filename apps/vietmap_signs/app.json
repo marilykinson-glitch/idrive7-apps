@@ -1,27 +1,15 @@
 {
   "id": "vietmap_signs",
   "title": "VietMap signs",
-  "description": "VietMap Live's speed-limit sign, read on the centre screen (its CarPlay widget) or on the phone by the VietMap signs phone app and sent over the car's Wi-Fi, drawn over Waze on cluster's map on the cluster and the HUD. BMW's own sign comes first if you like. Its helper (vietmap-signs) installs with it; Waze on cluster and its cluster-render must be installed.",
-  "version": "0.4.5",
+  "description": "The speed-limit sign BMW's own front camera recognises, else VietMap Live's, read on the centre screen (its CarPlay widget) or on the phone by the VietMap signs phone app and sent over the car's Wi-Fi, drawn over Waze on cluster's map on the cluster and the HUD. It flashes while the car is faster than it. Its helper (vietmap-signs) installs with it; Waze on cluster and its cluster-render must be installed.",
+  "version": "0.5.0",
   "vendor": "custom",
   "loggingId": "OAA5",
   "iconGlyph": "flag",
   "signals": {
-    "de.bmw.dass.driverassistanceapplications.TrafficSignDisplayControl": {
-      "_optional": "BMW's own speed sign; VietMap's sign then always shows",
-      "displaySpeedLimitAndNoPassingRestriction": "s"
-    },
-    "de.bmw.infotainment.navigation.externalize.adasng.CCP": {
-      "_optional": "the speed limit of BMW's own map",
-      "_broadcasts": ["effectiveSpeedLimit"]
-    },
     "de.bmw.infotainment.vehicle.Vehicle2": {
       "_optional": "the car's speed; no warning above the sign then",
       "statusCarSpeed2": "rs"
-    },
-    "de.bmw.infotainment.fasus.FASuS": {
-      "_optional": "BMW's speed-limit recognition",
-      "statusNextSpeedLimitRecognition": "rs"
     }
   },
   "screens": [
@@ -38,7 +26,7 @@
     }
   ],
   "settings": [
-    {"key": "mode", "label": "VietMap's sign on the cluster", "type": "choice", "default": "on",
+    {"key": "mode", "label": "The speed sign on the cluster", "type": "choice", "default": "on",
      "options": [["on", "On"], ["off", "Off"]]},
     {"key": "show", "label": "Show on", "type": "choice", "default": "both",
      "options": [["both", "Cluster and HUD"], ["cluster", "Cluster only"], ["hud", "HUD only"]]},
@@ -48,12 +36,12 @@
      "options": [["left", "Top left"], ["right", "Top right"]]},
     {"key": "size", "label": "Sign size", "type": "choice", "default": "medium",
      "options": [["small", "Small"], ["medium", "Medium"], ["large", "Large"]]},
+    {"key": "camera", "label": "BMW camera's sign first", "type": "choice", "default": "on",
+     "options": [["on", "On"], ["off", "Off: VietMap's only"]]},
     {"key": "screen", "label": "Read the sign on the centre screen (CarPlay) - experimental, can misread", "type": "choice", "default": "off",
      "options": [["off", "Off"], ["on", "On"]]},
     {"key": "warn", "label": "Warn when faster than the sign", "type": "choice", "default": "5",
      "options": [["off", "Off"], ["0", "Above the sign"], ["5", "5 km/h above"], ["10", "10 km/h above"]]},
-    {"key": "bmw", "label": "While BMW shows its own sign", "type": "choice", "default": "hide",
-     "options": [["hide", "BMW's sign only"], ["show", "VietMap's sign too"]]},
     {"key": "theme", "label": "Colour theme", "type": "choice", "default": "m_tricolour",
      "options": [["m_red", "M Red"], ["m_tricolour", "M Tricolour"], ["ice", "Ice White"], ["amber", "Night Amber"]]},
     {"key": "layout", "label": "Screen layout", "type": "choice", "default": "full",

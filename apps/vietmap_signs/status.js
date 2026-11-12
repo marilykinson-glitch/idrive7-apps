@@ -71,6 +71,13 @@ function report(s, want, bmw) {
             lines.push(rd);
         } else lines.push({ text: 'Centre screen: read while the map shows and the phone is quiet', kind: 'dim' });
     }
+    const c = s.camera;
+    if (c && c.on) {
+        lines.push(c.error ? { text: 'BMW camera: ' + c.error, kind: 'warn' }
+            : !c.ready ? { text: 'BMW camera: starting', kind: 'dim' }
+                : c.limit ? { text: 'BMW camera: sign ' + c.limit + (c.seen ? ' · seen ' + c.seen : ''), kind: 'go' }
+                    : { text: 'BMW camera: no speed sign now', kind: 'dim' });
+    }
     if (bmw && bmw.available === false) lines.push({ text: 'BMW sign: no signal', kind: 'dim' });
     else if (bmw && bmw.valid) lines.push({ text: 'BMW sign: ' + bmw.limit + ' km/h' + (bmw.source ? ' (' + bmw.source + ')' : ''), kind: 'dim' });
     else if (bmw) lines.push({ text: 'BMW sign: none', kind: 'dim' });
@@ -91,7 +98,7 @@ function report(s, want, bmw) {
     else if (shown.length) { note = shown.length > 1 ? 'Shown on the cluster and the HUD' : shown[0] === 'map' ? 'Shown on the cluster' : 'Shown on the HUD'; noteKind = 'go'; }
     else note = WHY[s.why] || s.why || '';
     if (/install/i.test(note || '')) noteKind = 'warn';
-    return { limit: s.limit || null, phoneLimit: p.limit || null, lines, note, noteKind, pending: !!pending, bmwView: bmw && bmw.view };
+    return { limit: s.limit || null, phoneLimit: p.limit || null, source: s.source || null, lines, note, noteKind, pending: !!pending, bmwView: bmw && bmw.view };
 }
 
 module.exports = { readStatus, report, bmwFrom, STATUS, STALE_MS, WHY };

@@ -6,9 +6,8 @@
  * it over the car's Wi-Fi to this app's helper, the root tool vietmap-signs (kit/vietmap-signs,
  * installed with this app), which draws the sign over Waze on cluster's map through cluster-render.
  * This app says what is wanted (its settings, saved by the kit in data/settings.json, which the helper
- * reads), shows what the helper reports (/run/vietmap-signs/status.json), and, while it runs, writes
- * BMW's own speed limit (bmw.js: the cluster's sign, the car's map) to data/bmw_sign.json once a
- * second, so the helper can leave the cluster to BMW's sign while it shows one.
+ * reads), and shows what the helper reports (/run/vietmap-signs/status.json). BMW's own front camera's
+ * sign, which comes first, is read by the helper itself (apps are not given it).
  */
 const fs = require('fs');
 const path = require('path');
@@ -17,7 +16,6 @@ const G = require('./kit/gauges');
 const { Canvas } = require('./kit/canvas');
 const UI = require('./ui');
 const { readStatus, report } = require('./status');
-const BMW = require('./bmw');
 
 mgu.run({
     async start(ctx) {
@@ -73,9 +71,6 @@ mgu.run({
             try { fs.writeFileSync(previewFile, JSON.stringify({ at: new Date().toISOString() })); } catch (e) { /* the next one */ }
         };
 
-        // --- BMW's own sign (bmw.js: every place it may come from), for the screen and the helper ---
-        const bmwSigns = BMW.start(ctx);
-
         // --- the car's speed, for the helper's warning above the sign (data/speed.json, up to 4 times a second) ---
         let speed = null, speedAt = 0, speedSaved = 0;
         const speedFile = path.join(ctx.dataDir, 'speed.json');
@@ -102,10 +97,9 @@ mgu.run({
 
         const render = async () => {
             const want = { on: settings.get('mode') !== 'off', show: settings.get('show') };
-            const b = Object.assign(bmwSigns.best(), { view: bmwSigns.view() });
             status = readStatus();
             previewTick();
-            const r = report(status, want, b);
+            const r = report(status, want);
             const v = Object.assign({ on: want.on, show: want.show, shows, page, editing, status,
                 map: UI.geometry(status, settings, 'map'), hud: UI.geometry(status, settings, 'hud') }, r);
             const cv = ctx.canvas(UI.W, UI.H) || new Canvas(UI.W, UI.H);
