@@ -1,7 +1,7 @@
 {
   "id": "vietmap-signs",
   "kind": "tool",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "title": "VietMap signs helper",
   "description": "Draws the speed-limit sign over Waze on cluster's map on the cluster and the HUD through cluster-render: first the one BMW's own front camera recognises (read as root from the car's SOME/IP, reading only), else the one the VietMap signs phone app sends over the car's Wi-Fi (UDP 8471, one firewall rule per Wi-Fi interface while it runs); flashes while faster than it; patches nothing",
   "license": "MIT",

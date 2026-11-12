@@ -31,7 +31,7 @@ recognises first, else VietMap Live's.
   from and what the camera saw.
 - **Faster than the sign**: with the car's speed (Vehicle2) above the sign by the chosen margin (Settings:
   above it, 5 km/h above, the default, or 10; or off) the sign on the cluster and the HUD flashes
-  as BMW's own does (on 0.6 s, off 0.4 s; the renderer's own step animation). The speed is the helper's
+  as BMW's own does (on 0.6 s, off 0.4 s: the layers' opacity, from the helper's own timer). The speed is the helper's
   own (Vehicle2, as root), else the app's. The screen shows it.
 - **Position** (the second tab): pictures of the cluster's map area and of the HUD (what it shows of its
   800x480 shaded, Waze on cluster's HUD map outlined) with the sign on each. A tap on a picture puts the

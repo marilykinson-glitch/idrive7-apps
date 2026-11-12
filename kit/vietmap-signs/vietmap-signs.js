@@ -44,7 +44,7 @@ const cp = require('child_process');
 const dgram = require('dgram');
 const zlib = require('zlib');
 
-const VERSION = '0.5.0';
+const VERSION = '0.5.1';
 const env = (k, d) => (process.env[k] !== undefined && process.env[k] !== '' ? process.env[k] : d);
 const CFG = {
     oap: env('VMS_OAP', '/var/opt/public/oap'),
@@ -186,8 +186,28 @@ function sign(limit, S, warn) {
 }
 
 /* the warning while faster than the sign, as BMW's own cluster does it: the sign as it is, flashing, on
-   0.6 s and off 0.4 s (the renderer's own animation, scale 1 / 0 in steps; nothing sent per frame) */
-const BLINK = { property: 'scale', keys: '0:1,1,1 600:0,0,0 1000:1,1,1', loop: true, interp: 'step' };
+   0.6 s and off 0.4 s. Its own timer sets the layers' opacity (a few bytes each time): the renderer's
+   scale animation did not show on the car. */
+const BLINK = { stepMs: Number(env('VMS_BLINK_STEP_MS', 200)), on: 3, off: 2 };
+const flash = { timer: null, step: 0, lit: true };
+function lightAll(lit) {
+    if (flash.lit === lit) return;
+    flash.lit = lit;
+    Object.keys(layers).forEach((t) => { const L = layers[t]; if (L.visible) cr.set(L.ref, { opacity: lit ? 1 : 0 }); });
+}
+function flashing(on) {
+    if (on && !flash.timer) {
+        flash.step = 0;
+        flash.timer = setInterval(() => {
+            flash.step = (flash.step + 1) % (BLINK.on + BLINK.off);
+            if (cr) lightAll(flash.step < BLINK.on);
+        }, BLINK.stepMs);
+    } else if (!on && flash.timer) {
+        clearInterval(flash.timer);
+        flash.timer = null;
+        if (cr) lightAll(true);
+    }
+}
 
 /* ---------------- the app: where it is and what it asks for ---------------- */
 
@@ -437,7 +457,7 @@ function applyLayers(want) {
         const w = want[t];
         let L = layers[t];
         if (!w.visible || !want.limit) {
-            if (L && L.visible) { cr.set(L.ref, { visible: false }); L.visible = false; }
+            if (L && L.visible) { cr.set(L.ref, { visible: false, opacity: 1 }); L.visible = false; }
             return;
         }
         if (!L || L.size !== w.size) {
@@ -449,12 +469,11 @@ function applyLayers(want) {
             renderer.layers[t] = { state: 'made', reason: null };
         }
         if (L.limit !== want.limit) { cr.pixels(L.ref, null, sign(want.limit, w.size)); L.limit = want.limit; }
-        if (want.warn && !L.anim) L.anim = cr.animate(L.ref, BLINK) || 0;
-        if (!want.warn && L.anim) { cr.stop(L.ref, L.anim); L.anim = 0; }
         if (L.x !== w.x || L.y !== w.y) { cr.set(L.ref, { x: w.x, y: w.y }); L.x = w.x; L.y = w.y; }
         if (L.guide !== w.guide) { cr.set(L.ref, { guide_hold: w.guide }); L.guide = w.guide; }
-        if (!L.visible) { cr.set(L.ref, { visible: true }); L.visible = true; }
+        if (!L.visible) { cr.set(L.ref, { visible: true, opacity: flash.lit ? 1 : 0 }); L.visible = true; }
     });
+    flashing(!!want.warn);
 }
 
 /* ---------------- one look ---------------- */
@@ -667,6 +686,7 @@ function run() {
     const quit = (sig) => {
         log('stopping (' + sig + ')');
         clearTimeout(timer);
+        flashing(false);
         try { if (cr) cr.close(); } catch (e) { /* gone */ }
         try { removeRules(); } catch (e) { /* gone */ }
         try { sock.close(); } catch (e) { /* gone */ }

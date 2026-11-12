@@ -360,11 +360,16 @@ function sendNoAnswer(msg) {
     const px0 = calls('pixels').length;
     let w = vms.tick();
     assert.strictEqual(w.over, true, '70 is over 60 + 5');
-    const anims = calls('animate');
-    assert(anims.length >= 2 && anims.every((c) => c[2].property === 'scale' && c[2].loop === true && c[2].interp === 'step'), 'both signs flash');
-    assert(/^0:1,1,1 \d+:0,0,0 \d+:1,1,1$/.test(anims[0][2].keys), 'on, off, on: ' + anims[0][2].keys);
-    vms.tick();
-    vms.tick();
+    const opacities = () => calls('set').filter((c) => c[2].opacity !== undefined && c[2].visible === undefined).map((c) => c[2].opacity);
+    const o0 = opacities().length;
+    for (let k = 0; k < 4; k++) {         // 200 ms steps: on 3, off 2; the phone's sign kept fresh
+        await sleep(300);
+        speedIs(70);
+        a = await send({ t: 'vms', v: 1, seq: 30, limit: 60 });
+        vms.tick();
+    }
+    const seen = opacities().slice(o0);
+    assert(seen.indexOf(0) >= 0 && seen.indexOf(1) >= 0, 'both signs flash: ' + seen.join(','));
     assert.strictEqual(calls('pixels').length, px0, 'the sign itself is not redrawn to flash');
     assert.strictEqual(status().over, true);
     assert.strictEqual(status().speed, 70);
@@ -372,7 +377,10 @@ function sendNoAnswer(msg) {
     a = await send({ t: 'vms', v: 1, seq: 31, limit: 60 });
     w = vms.tick();
     assert.strictEqual(w.over, false, '64 is within 60 + 5');
-    assert(calls('stop').length >= 2, 'the flashing stops');
+    const o1 = opacities().length;
+    await sleep(500);
+    vms.tick();
+    assert(opacities().slice(o1).every((x) => x === 1), 'the flashing stops, lit');
     app.settings({ warn: '0' });
     speedIs(61);
     a = await send({ t: 'vms', v: 1, seq: 32, limit: 60 });
