@@ -2,20 +2,78 @@
   "schema": 1,
   "components": [
     {
+      "id": "live_adjustments",
+      "kind": "app",
+      "path": "apps/live_adjustments",
+      "manifest": "app.json",
+      "icon": "icon.png",
+      "mguHmi": [
+        "ID7"
+      ],
+      "requires": {
+        "idrive7-renderd": "2.1.7",
+        "mgu-inputgate": "1.0.0"
+      },
+      "build": {
+        "python": "kit/tools/build.py",
+        "args": [
+          "--language",
+          "vi",
+          "--language-setting",
+          "--plain-version",
+          "{id}"
+        ],
+        "sdk": "oap-sdk",
+        "output": "dist/{id}@{version}.tgz",
+        "shared": [
+          "kit/runtime",
+          "kit/platform",
+          "kit/localization",
+          "kit/tools/build.py",
+          "kit/tools/pack_data.py",
+          "kit/tools/localize.py",
+          "kit/tools/locale-revisions.json",
+          "kit/tools/oapgen",
+          "oap-sdk"
+        ]
+      }
+    },
+    {
       "id": "vietmap_cluster",
       "kind": "app",
       "path": "apps/vietmap_cluster",
       "manifest": "app.json",
       "icon": "icon.png",
-      "mguHmi": ["ID7"],
-      "requires": { "idrive7-renderd": "2.1.7", "mgu-inputgate": "1.0.0", "vietmap-cluster": "0.1.0" },
+      "mguHmi": [
+        "ID7"
+      ],
+      "requires": {
+        "idrive7-renderd": "2.1.7",
+        "mgu-inputgate": "1.0.0",
+        "vietmap-cluster": "0.1.0"
+      },
       "build": {
         "python": "kit/tools/build.py",
-        "args": ["--language", "vi", "--language-setting", "--plain-version", "{id}"],
+        "args": [
+          "--language",
+          "vi",
+          "--language-setting",
+          "--plain-version",
+          "{id}"
+        ],
         "sdk": "oap-sdk",
         "output": "dist/{id}@{version}.tgz",
-        "shared": ["kit/runtime", "kit/platform", "kit/localization", "kit/tools/build.py", "kit/tools/pack_data.py",
-          "kit/tools/localize.py", "kit/tools/locale-revisions.json", "kit/tools/oapgen", "oap-sdk"]
+        "shared": [
+          "kit/runtime",
+          "kit/platform",
+          "kit/localization",
+          "kit/tools/build.py",
+          "kit/tools/pack_data.py",
+          "kit/tools/localize.py",
+          "kit/tools/locale-revisions.json",
+          "kit/tools/oapgen",
+          "oap-sdk"
+        ]
       }
     },
     {
@@ -24,53 +82,63 @@
       "path": "apps/vietmap_signs",
       "manifest": "app.json",
       "icon": "icon.png",
-      "mguHmi": ["ID7"],
-      "requires": { "idrive7-renderd": "2.1.7", "mgu-inputgate": "1.0.0", "vietmap-signs": "0.4.0" },
+      "mguHmi": [
+        "ID7"
+      ],
+      "requires": {
+        "idrive7-renderd": "2.1.7",
+        "mgu-inputgate": "1.0.0",
+        "vietmap-signs": "0.4.0"
+      },
       "build": {
         "python": "kit/tools/build.py",
-        "args": ["--language", "vi", "--language-setting", "--plain-version", "{id}"],
+        "args": [
+          "--language",
+          "vi",
+          "--language-setting",
+          "--plain-version",
+          "{id}"
+        ],
         "sdk": "oap-sdk",
         "output": "dist/{id}@{version}.tgz",
-        "shared": ["kit/runtime", "kit/platform", "kit/localization", "kit/tools/build.py", "kit/tools/pack_data.py",
-          "kit/tools/localize.py", "kit/tools/locale-revisions.json", "kit/tools/oapgen", "oap-sdk"]
+        "shared": [
+          "kit/runtime",
+          "kit/platform",
+          "kit/localization",
+          "kit/tools/build.py",
+          "kit/tools/pack_data.py",
+          "kit/tools/localize.py",
+          "kit/tools/locale-revisions.json",
+          "kit/tools/oapgen",
+          "oap-sdk"
+        ]
       }
     }
   ],
-  "apps": {
-    "path": "apps/*",
-    "exclude": ["vietmap_cluster", "vietmap_signs"],
-    "manifest": "app.json",
-    "icon": "icon.png",
-    "mguHmi": ["ID7"],
-    "requires": { "idrive7-renderd": "2.1.7", "mgu-inputgate": "1.0.0" },
-    "build": {
-      "python": "kit/tools/build.py",
-      "args": ["--language", "vi", "--language-setting", "--plain-version", "{id}"],
-      "sdk": "oap-sdk",
-      "output": "dist/{id}@{version}.tgz",
-      "network": ["doom"],
-      "shared": ["kit/runtime", "kit/platform", "kit/localization", "kit/tools/build.py", "kit/tools/pack_data.py",
-        "kit/tools/localize.py", "kit/tools/locale-revisions.json", "kit/tools/oapgen", "oap-sdk"]
-    }
-  },
   "tools": [
     {
       "id": "car-probe",
       "path": "kit/car-probe",
       "title": "Car probe",
-      "mguHmi": ["ID7"]
+      "mguHmi": [
+        "ID7"
+      ]
     },
     {
       "id": "vietmap-cluster",
       "path": "kit/vietmap-cluster",
       "title": "VietMap on cluster helper",
-      "mguHmi": ["ID7"]
+      "mguHmi": [
+        "ID7"
+      ]
     },
     {
       "id": "vietmap-signs",
       "path": "kit/vietmap-signs",
       "title": "VietMap signs helper",
-      "mguHmi": ["ID7"]
+      "mguHmi": [
+        "ID7"
+      ]
     },
     {
       "id": "idrive7-renderd",
@@ -78,7 +146,9 @@
       "title": "GPU renderer",
       "description": "The apps' own GPU renderer (mgu-render): draws them at 60 fps, beside the MGU Store's Renderer; installed with the apps",
       "provides": "renderer",
-      "mguHmi": ["ID7"]
+      "mguHmi": [
+        "ID7"
+      ]
     },
     {
       "id": "mgu-inputgate",
@@ -86,9 +156,13 @@
       "version": "1.0.0",
       "title": "Controller gate",
       "description": "Lets the apps have the iDrive controller (tabs, page buttons, settings, Doom); loads into the HMI at the next start",
-      "needs": ["renderer"],
+      "needs": [
+        "renderer"
+      ],
       "optional": false,
-      "mguHmi": ["ID7"],
+      "mguHmi": [
+        "ID7"
+      ],
       "preload": {
         "library": "mgu-inputgate.so",
         "unit": "hmi.service",
