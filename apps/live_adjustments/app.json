@@ -1,7 +1,7 @@
 {
   "id": "live_adjustments",
-  "title": "Engine Config",
-  "description": "Engine Config for BMW MGU ID7. Exhaust Flap: OEM, OPEN and CLOSE over the car's own diagnostic link. With BM3 or MHD picked in Settings: engine map switching, burbles, ASD and Max Cooling. Experimental: xDrive off until the ignition cycle (DSC LMV_FUNKTION), behind its own setting",
+  "title": "Cấu hình động cơ",
+  "description": "Cấu hình động cơ cho BMW MGU ID7. Van xả: OEM, MỞ và ĐÓNG qua cổng chẩn đoán của xe. Với BM3 hoặc MHD: chuyển map động cơ, burble, ASD và làm mát tối đa. Thử nghiệm: tắt xDrive đến khi tắt khoá điện (DSC LMV_FUNKTION), ẩn sau cài đặt riêng",
   "version": "0.7.15",
   "vendor": "custom",
   "loggingId": "OAA0",
@@ -34,7 +34,7 @@
     {
       "name": "MAIN",
       "kind": "canvas",
-      "title": "Engine Config",
+      "title": "Cấu hình động cơ",
       "buttons": [
         [
           "BTN_OPEN",
@@ -62,59 +62,59 @@
   "settings": [
     {
       "key": "arm",
-      "label": "Exhaust Flap",
+      "label": "Van xả",
       "type": "choice",
       "default": "off",
       "options": [
         [
           "off",
-          "Disarmed · simulated (safe)"
+          "Chưa kích hoạt · mô phỏng (an toàn)"
         ],
         [
           "on",
-          "Armed · actuates the real valve"
+          "Đã kích hoạt · điều khiển van thật"
         ]
       ]
     },
     {
       "key": "tuner",
-      "label": "Tuning software",
+      "label": "Phần mềm độ",
       "type": "choice",
       "default": "off",
       "options": [
         [
           "off",
-          "Off · nothing is sent to the car (safe)"
+          "Tắt · không gửi gì vào xe (an toàn)"
         ],
         [
           "bm3",
-          "BM3 · engine map, burbles, ASD"
+          "BM3 · map động cơ, burble, ASD"
         ],
         [
           "mhd",
-          "MHD · engine map, Max Cooling"
+          "MHD · map động cơ, làm mát tối đa"
         ]
       ]
     },
     {
       "key": "xdrive",
-      "label": "xDrive (experimental)",
+      "label": "xDrive (thử nghiệm)",
       "type": "choice",
       "default": "off",
       "options": [
         [
           "off",
-          "Off · nothing is sent (safe)"
+          "Tắt · không gửi gì (an toàn)"
         ],
         [
           "on",
-          "On · xDrive tab, xDrive off until ignition off"
+          "Bật · có tab xDrive, tắt xDrive đến khi tắt khoá điện"
         ]
       ]
     },
     {
       "key": "theme",
-      "label": "Colour theme",
+      "label": "Màu giao diện",
       "type": "choice",
       "default": "m_tricolour",
       "options": [
@@ -136,40 +136,40 @@
         ]
       ]
     },
-    {"key": "layout", "label": "Screen layout", "type": "choice", "default": "full", "options": [["full", "Full screen"], ["standard", "Standard"]]},
+    {"key": "layout", "label": "Bố cục màn hình", "type": "choice", "default": "full", "options": [["full", "Toàn màn hình"], ["standard", "Tiêu chuẩn"]]},
     {
       "key": "renderer",
-      "label": "Renderer",
+      "label": "Bộ vẽ",
       "type": "choice",
       "default": "auto",
       "options": [
         [
           "auto",
-          "GPU 60 fps (default)"
+          "GPU 60 fps (mặc định)"
         ],
         [
           "software",
-          "Software"
+          "Phần mềm"
         ]
       ]
     },
     {
       "key": "demo",
-      "label": "Demo data",
+      "label": "Dữ liệu mô phỏng",
       "type": "choice",
       "default": "auto",
       "options": [
         [
           "auto",
-          "Auto"
+          "Tự động"
         ],
         [
           "on",
-          "Always"
+          "Luôn bật"
         ],
         [
           "off",
-          "Never"
+          "Luôn tắt"
         ]
       ]
     }

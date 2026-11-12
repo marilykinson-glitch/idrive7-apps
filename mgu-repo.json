@@ -89,7 +89,7 @@
     {
       "id": "vietmap-signs",
       "path": "kit/vietmap-signs",
-      "title": "VietMap signs helper",
+      "title": "Trợ thủ biển báo VietMap",
       "mguHmi": [
         "ID7"
       ]
