@@ -1,9 +1,9 @@
 {
   "id": "vietmap-signs",
   "kind": "tool",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "title": "Trợ thủ biển báo VietMap",
-  "description": "Vẽ biển tốc độ lên bản đồ đồng hồ và HUD qua cluster-render: ưu tiên biển camera trước BMW (đọc từ SOME/IP xe với quyền root, chỉ đọc), nếu không có thì lấy từ app VietMap signs trên điện thoại qua Wi-Fi xe (UDP 8471); chớp khi xe chạy nhanh hơn biển; không ghi gì vào xe",
+  "description": "Vẽ biển tốc độ lên bản đồ đồng hồ và HUD qua cluster-render: ưu tiên biển camera trước BMW (đọc từ SOME/IP xe với quyền root, chỉ đọc), nếu không có thì lấy từ app VietMap signs trên điện thoại qua Wi-Fi xe (UDP 8471); nhấp nháy mượt khi xe chạy nhanh hơn biển; không ghi gì vào xe",
   "license": "MIT",
   "mguHmi": [
     "ID7"
