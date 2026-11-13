@@ -43,7 +43,7 @@ const KEEP = [], HEARD = {};
 let lines = 0;
 const say = (s) => {
     if (lines++ > MAX_LINES) return;
-    try { fs.appendFileSync(LOG, new Date().toISOString().slice(11, 19) + ' ' + String(s).slice(0, 900) + '\n'); } catch (e) { /* full disk */ }
+    try { fs.appendFileSync(LOG, new Date().toISOString() + ' ' + String(s).slice(0, 900) + '\n'); } catch (e) { /* full disk */ }
 };
 const end = (why) => { say('listen end: ' + why); try { fs.unlinkSync(PID); } catch (e) { /* gone */ } process.exit(0); };
 
