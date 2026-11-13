@@ -322,6 +322,7 @@ function sendNoAnswer(msg) {
     fs.writeFileSync(WHICH, path.join(FIX, 'centre-80.jpg'));
     a = await send({ t: 'vms', v: 1, seq: 20, limit: 50 });
     assert.strictEqual(vms._last().limit, 50);
+    await sleep(100); // allow an already-started grab to finish before counting new ones
     const before = grabs().length;
     await sleep(200);
     vms.tick();
@@ -362,14 +363,16 @@ function sendNoAnswer(msg) {
     assert.strictEqual(w.over, true, '70 is over 60 + 5');
     const opacities = () => calls('set').filter((c) => c[2].opacity !== undefined && c[2].visible === undefined).map((c) => c[2].opacity);
     const o0 = opacities().length;
-    for (let k = 0; k < 4; k++) {         // 200 ms steps: on 3, off 2; the phone's sign kept fresh
+    for (let k = 0; k < 4; k++) {         // keep the phone's sign fresh through a full pulse
         await sleep(300);
         speedIs(70);
         a = await send({ t: 'vms', v: 1, seq: 30, limit: 60 });
         vms.tick();
     }
     const seen = opacities().slice(o0);
-    assert(seen.indexOf(0) >= 0 && seen.indexOf(1) >= 0, 'both signs flash: ' + seen.join(','));
+    assert(seen.every((opacity) => opacity >= 0.25 && opacity <= 1), 'the signs stay readable');
+    assert(new Set(seen.filter((opacity) => opacity > 0.25 && opacity < 1)).size >= 5, 'the pulse uses intermediate opacities');
+    assert(seen.some((opacity) => opacity <= 0.35) && seen.some((opacity) => opacity >= 0.9), 'the signs dim and brighten');
     assert.strictEqual(calls('pixels').length, px0, 'the sign itself is not redrawn to flash');
     assert.strictEqual(status().over, true);
     assert.strictEqual(status().speed, 70);
@@ -377,6 +380,7 @@ function sendNoAnswer(msg) {
     a = await send({ t: 'vms', v: 1, seq: 31, limit: 60 });
     w = vms.tick();
     assert.strictEqual(w.over, false, '64 is within 60 + 5');
+    assert.strictEqual(opacities().slice(-1)[0], 1, 'full opacity returns when the warning ends');
     const o1 = opacities().length;
     await sleep(500);
     vms.tick();
@@ -408,20 +412,22 @@ function sendNoAnswer(msg) {
     assert.strictEqual(camera.pick(ev([SL(57)])), null, 'not a limit a sign carries');
     assert.strictEqual(camera.pick(ev([{ type: 'END_OF_SPEED_LIMIT', value: 60 }])).end, true);
     assert.strictEqual(camera.pick(Object.assign(ev([SL(60)]), { eventDataQualifier: 'EVENT_DATA_NOT_AVAILABLE' })), null);
-    // held until another, an end, or 3 km; a change next to another limit once a second event agrees
-    const cs = camera.createState({ holdKm: 3 });
+    // held until another, an end, or 500 m; a change next to another limit once a second event agrees
+    const cs = camera.createState();
     let t0 = 1000000;
     assert.strictEqual(camera.onEvent(cs, ev([SL(80), SL(60, 'SS_TRUCK')]), t0), 80);
     assert.strictEqual(camera.onEvent(cs, ev([SL(60), SL(50)]), t0 + 1000), 80, 'not yet: two limits, first time');
     assert.strictEqual(camera.onEvent(cs, ev([SL(60), SL(50)]), t0 + 3000), 60, 'the second event agrees');
     assert.strictEqual(camera.onEvent(cs, ev([SL(40)]), t0 + 4000), 40, 'alone in its event: at once');
     camera.onSpeed(cs, { speedVehicleCentreOfGravity: 3840 }, t0 + 4000);           // 60 km/h
-    for (let k = 1; k <= 200; k++) camera.onSpeed(cs, { speedVehicleCentreOfGravity: 3840 }, t0 + 4000 + k * 1000);   // 200 s: 3.3 km
-    assert.strictEqual(camera.speed(cs, t0 + 204000), 60);
-    assert.strictEqual(camera.current(cs, t0 + 204000), 0, 'dropped after 3 km');
-    camera.onEvent(cs, ev([SL(50)]), t0 + 205000);
-    assert.strictEqual(camera.onEvent(cs, ev([{ type: 'END_OF_SPEED_LIMIT' }]), t0 + 206000), 0, 'an end sign ends it');
-    camera.onSpeed(cs, { speedVehicleCentreOfGravity: 65535 }, t0 + 207000);
+    for (let k = 1; k < 30; k++) camera.onSpeed(cs, { speedVehicleCentreOfGravity: 3840 }, t0 + 4000 + k * 1000);   // 500 m at 60 km/h
+    assert.strictEqual(camera.current(cs, t0 + 33000), 40, 'held just before 500 m');
+    camera.onSpeed(cs, { speedVehicleCentreOfGravity: 3840 }, t0 + 34000);
+    assert.strictEqual(camera.speed(cs, t0 + 34000), 60);
+    assert.strictEqual(camera.current(cs, t0 + 34000), 0, 'dropped at 500 m');
+    camera.onEvent(cs, ev([SL(50)]), t0 + 35000);
+    assert.strictEqual(camera.onEvent(cs, ev([{ type: 'END_OF_SPEED_LIMIT' }]), t0 + 36000), 0, 'an end sign ends it');
+    camera.onSpeed(cs, { speedVehicleCentreOfGravity: 65535 }, t0 + 37000);
     assert.strictEqual(cs.speed, 60, 'the invalid value is not a speed');
 
     // the camera's sign comes before the phone's; off in the settings, the phone's again

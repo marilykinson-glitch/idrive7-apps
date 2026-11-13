@@ -5,7 +5,7 @@
  *
  * The sign comes first from BMW's own front camera (camera.js: the signs it recognises, read as root
  * from the unit's SOME/IP binding; apps are not given them), then from the phone, then (off by default)
- * from a picture of the centre screen. Faster than the sign, it flashes as BMW's own sign does.
+ * from a picture of the centre screen. Faster than the sign, it pulses in brightness.
  *
  * The phone app (android/vmsign) reads the number in VietMap Live's speed bubble and sends it over the
  * car's Wi-Fi, a small JSON datagram on UDP 8471 at each change and once a second:
@@ -44,7 +44,7 @@ const cp = require('child_process');
 const dgram = require('dgram');
 const zlib = require('zlib');
 
-const VERSION = '0.5.1';
+const VERSION = '0.5.2';
 const env = (k, d) => (process.env[k] !== undefined && process.env[k] !== '' ? process.env[k] : d);
 const CFG = {
     oap: env('VMS_OAP', '/var/opt/public/oap'),
@@ -72,7 +72,7 @@ const CFG = {
     someip: env('VMS_SOMEIP', '/usr/lib/someip.node'),
     catalog: env('VMS_CATALOG', '/etc/oap/someip/someip-interfaces.json'),
     gen: env('VMS_GEN', path.join(__dirname, 'gen.js')),
-    camHoldKm: Number(env('VMS_CAMERA_HOLD_KM', 3)),
+    camHoldKm: Number(env('VMS_CAMERA_HOLD_KM', camera.DEFAULT_HOLD_KM)),
 };
 const APP = /^vietmap_signs\d*$/;          // the app's id (the Store may install it as vietmap_signs2)
 const NFT_COMMENT = 'vietmap-signs';
@@ -185,27 +185,32 @@ function sign(limit, S, warn) {
     return signCache.get(key);
 }
 
-/* the warning while faster than the sign, as BMW's own cluster does it: the sign as it is, flashing, on
-   0.6 s and off 0.4 s. Its own timer sets the layers' opacity (a few bytes each time): the renderer's
-   scale animation did not show on the car. */
-const BLINK = { stepMs: Number(env('VMS_BLINK_STEP_MS', 200)), on: 3, off: 2 };
-const flash = { timer: null, step: 0, lit: true };
-function lightAll(lit) {
-    if (flash.lit === lit) return;
-    flash.lit = lit;
-    Object.keys(layers).forEach((t) => { const L = layers[t]; if (L.visible) cr.set(L.ref, { opacity: lit ? 1 : 0 }); });
+/* Keep the sign readable during the warning. Only layer opacity changes, on both displays. */
+const BLINK = { frameMs: 50, cycleMs: 1000, minOpacity: 0.25 };
+const flash = { timer: null, opacity: 1 };
+function setSignOpacity(opacity) {
+    if (flash.opacity === opacity) return;
+    flash.opacity = opacity;
+    Object.keys(layers).forEach((t) => {
+        const L = layers[t];
+        if (L.visible) cr.set(L.ref, { opacity });
+    });
 }
 function flashing(on) {
     if (on && !flash.timer) {
-        flash.step = 0;
+        const started = process.hrtime();
         flash.timer = setInterval(() => {
-            flash.step = (flash.step + 1) % (BLINK.on + BLINK.off);
-            if (cr) lightAll(flash.step < BLINK.on);
-        }, BLINK.stepMs);
+            const elapsed = process.hrtime(started);
+            const ms = elapsed[0] * 1000 + elapsed[1] / 1e6;
+            const phase = (ms % BLINK.cycleMs) / BLINK.cycleMs;
+            const brightness = (1 + Math.cos(2 * Math.PI * phase)) / 2;
+            const opacity = BLINK.minOpacity + (1 - BLINK.minOpacity) * brightness;
+            if (cr) setSignOpacity(Math.round(opacity * 100) / 100);
+        }, BLINK.frameMs);
     } else if (!on && flash.timer) {
         clearInterval(flash.timer);
         flash.timer = null;
-        if (cr) lightAll(true);
+        if (cr) setSignOpacity(1);
     }
 }
 
@@ -471,9 +476,9 @@ function applyLayers(want) {
         if (L.limit !== want.limit) { cr.pixels(L.ref, null, sign(want.limit, w.size)); L.limit = want.limit; }
         if (L.x !== w.x || L.y !== w.y) { cr.set(L.ref, { x: w.x, y: w.y }); L.x = w.x; L.y = w.y; }
         if (L.guide !== w.guide) { cr.set(L.ref, { guide_hold: w.guide }); L.guide = w.guide; }
-        if (!L.visible) { cr.set(L.ref, { visible: true, opacity: flash.lit ? 1 : 0 }); L.visible = true; }
+        if (!L.visible) { cr.set(L.ref, { visible: true, opacity: flash.opacity }); L.visible = true; }
     });
-    flashing(!!want.warn);
+    flashing(!!want.warn && (want.map.visible || want.hud.visible));
 }
 
 /* ---------------- one look ---------------- */

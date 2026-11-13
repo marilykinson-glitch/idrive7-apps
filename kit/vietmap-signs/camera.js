@@ -23,6 +23,8 @@ const fs = require('fs');
 const path = require('path');
 const cp = require('child_process');
 
+const DEFAULT_HOLD_KM = 0.5;
+
 const TARGETS = {
     camera: { iface: 'de.bmw.environmentalmodel.SignRecognitionFrontCamera', broadcasts: ['TrafficSignRecognitionFrontCamera'] },
     speed: { iface: 'de.bmw.infotainment.vehicle.Vehicle2', attributes: { statusCarSpeed2: 's' } },
@@ -64,7 +66,7 @@ function pick(v) {
 function createState(opts) {
     opts = opts || {};
     return {
-        holdKm: opts.holdKm || 3, holdMin: opts.holdMin || 15, confirmMs: opts.confirmMs || 8000,
+        holdKm: Number.isFinite(opts.holdKm) && opts.holdKm > 0 ? opts.holdKm : DEFAULT_HOLD_KM, holdMin: opts.holdMin || 15, confirmMs: opts.confirmMs || 8000,
         limit: 0, at: 0, km: 0, candidate: 0, candidateAt: 0, events: 0, signs: '', lastEventAt: 0,
         speed: null, speedAt: 0, up: { camera: null, speed: null }, error: null, ready: false,
     };
@@ -102,7 +104,7 @@ function onSpeed(st, v, now) {
 /** The limit in force now, 0 for none; drops it once driven past or held too long. */
 function current(st, now, log) {
     if (!st.limit) return 0;
-    const driven = st.km >= st.holdKm;
+    const driven = st.km + 1e-9 >= st.holdKm;
     const stale = (st.speed === null || now - st.speedAt > 5000) && now - st.at > st.holdMin * 60000;
     if (driven || stale) {
         if (log) log('camera: ' + st.limit + ' dropped (' + (driven ? st.km.toFixed(1) + ' km driven' : 'held ' + st.holdMin + ' min') + ')');
@@ -183,4 +185,4 @@ function start(st, o) {
     return held;
 }
 
-module.exports = { pick, createState, onEvent, onSpeed, current, speed, start, TARGETS };
+module.exports = { DEFAULT_HOLD_KM, pick, createState, onEvent, onSpeed, current, speed, start, TARGETS };
