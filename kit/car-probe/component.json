@@ -1,9 +1,9 @@
 {
   "id": "car-probe",
   "kind": "tool",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "title": "Car probe",
-  "description": "Read-only: at install it looks (as root, reading only) for where the car says which turn signal is on, and prints what it hears for 45 s into the Store's log (phone page, Logs: updater); flick the turn signal while it installs. Changes nothing in the car; remove it afterwards",
+  "description": "Ghi log chẩn đoán biển tốc độ BMW trong 90 giây. Đối chiếu camera với bản tin Navigation theo giờ UTC. Xem log updater trong MGU Store. Cần mgu-python.",
   "license": "MIT",
   "mguHmi": [
     "ID7"
