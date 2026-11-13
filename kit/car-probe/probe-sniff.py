@@ -1,8 +1,5 @@
-# car-probe: looks, for 15 s, at the SOME/IP messages passing the head unit's network interfaces, for
-# those of navigation.ADAS (service 0xb51d): the map's speed limit on its way to the car. A raw socket
-# that only receives; nothing is sent. Python 2 or 3.
 from __future__ import print_function
-import socket, struct, sys, time, binascii
+import datetime, socket, struct, sys, time, binascii
 
 WANT = 0xb51d
 SECONDS = float(sys.argv[1]) if len(sys.argv) > 1 else 15.0
@@ -20,6 +17,8 @@ def someip(payload):
 
 def udp_of(frame):
     """The UDP payload of an Ethernet frame (IPv4 or IPv6, VLAN tag or not), or None."""
+    if len(frame) < 14:
+        return None
     o = 12
     et = struct.unpack('!H', frame[o:o + 2])[0]
     while et in (0x8100, 0x88a8) and o + 6 <= len(frame):
@@ -40,7 +39,6 @@ def udp_of(frame):
     return frame[o + 8:] if len(frame) >= o + 8 else None
 
 CATALOG = '/etc/oap/someip/someip-interfaces.json'
-HOT = ('speed', 'limit', 'sign', 'adas', 'navgraph', 'horizon', 'ccp', 'fasus', 'sli')
 
 def names():
     """{service id: (interface, {member id: 'kind member'})} from the unit's catalog."""
@@ -71,15 +69,22 @@ def names():
         out[sid] = (name, mem)
     return out
 
+def say(message):
+    print(datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ') + ' ' + message)
+
+
 def main():
     try:
         s = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(3))
     except Exception as e:
-        print('no raw socket: %s' % e)
-        return
+        say('no raw socket: %s' % e)
+        return 1
     s.settimeout(1.0)
     frames = udp = 0
-    seen, samples, ifs = {}, {}, {}
+    seen, previous, ifs = {}, {}, {}
+    logged = 0
+    cat = names()
+    say('wire begin; UDP on socnet0 and vlan interfaces')
     end = time.time() + SECONDS
     while time.time() < end:
         try:
@@ -91,8 +96,6 @@ def main():
             break
         if addr[0] != 'socnet0' and not addr[0].startswith('vlan'):
             continue                # the car's network only; a VLAN's frames come on its own interface too
-        if addr[0] == 'socnet0' and frame[12:14] not in (b'\x81\x00', b'\x88\xa8'):
-            pass
         frames += 1
         ifs[addr[0]] = ifs.get(addr[0], 0) + 1
         p = udp_of(frame)
@@ -102,24 +105,28 @@ def main():
         for svc, meth, typ, body in someip(p):
             k = (svc, meth)
             seen[k] = seen.get(k, 0) + 1
-            sm = samples.setdefault(k, [])
-            h = binascii.hexlify(body[:80]).decode()
-            if len(sm) < 3 and h not in sm:
-                sm.append(h)
-    print('%d frames, %d UDP, on %s' % (frames, udp, ', '.join('%s %d' % kv for kv in sorted(ifs.items())) or 'no interface'))
-    cat = names()
-    rows = []
-    for (svc, meth), n in seen.items():
-        iface, mem = cat.get(svc, ('?', {}))
-        rows.append((n, svc, meth, iface, mem.get(meth, '?')))
-    rows.sort(key=lambda r: (r[3], r[2]))
-    print('%d SOME/IP members seen (count service:method interface member):' % len(rows))
-    for n, svc, meth, iface, member in rows[:140]:
-        hot = any(w in (iface + ' ' + member).lower() for w in HOT) or svc in (WANT, 0xb51c)
-        line = 'x%d %04x:%04x %s %s' % (n, svc, meth, iface.replace('de.bmw.', ''), member)
-        if hot:
-            line += ' | ' + ' / '.join(samples.get((svc, meth), []))
-        print(line)
-    print('service 0xb51d: %d message(s)' % sum(v for k, v in seen.items() if k[0] == WANT))
+            iface, members = cat.get(svc, ('?', {}))
+            member = members.get(meth, '?')
+            if svc not in (WANT, 13301, 45186, 46350):
+                continue
+            if svc != WANT and not any(word in member.lower() for word in ('limit', 'trafficsign')):
+                continue
+            sample = binascii.hexlify(body[:64]).decode()
+            message = (typ, sample)
+            if logged < 300 and previous.get(k) != message:
+                previous[k] = message
+                logged += 1
+                say('wire %04x:%04x type=%02x %s %s %s' %
+                    (svc, meth, typ, iface, member, sample))
+    say('wire end: %d frames, %d UDP, interfaces %s' % (frames, udp, ', '.join(sorted(ifs))))
+    for (svc, meth), count in sorted(seen.items()):
+        if svc in (WANT, 13301, 45186, 46350):
+            say('wire count %04x:%04x %d' % (svc, meth, count))
+    say('wire navigation.ADAS 0xb51d: %d messages' % sum(n for (svc, _), n in seen.items() if svc == WANT))
+    if logged == 300:
+        say('wire change log reached its 300-entry cap')
+    return 0
 
-main()
+
+if __name__ == '__main__':
+    sys.exit(main())
