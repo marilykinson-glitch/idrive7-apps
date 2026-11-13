@@ -1,27 +1,40 @@
 #!/bin/sh
-# car-probe: a read-only survey of the head unit for the VietMap signs app; now: where the car says which
-# turn signal is on (the catalog's names, and what they send for 45 s). Earlier probes' scripts stay here.
-# It runs once at each install (component.json postInstall) and prints into the mgu Store's log, which
-# the Store's phone page shows (Logs: updater). It changes nothing.
+# Run both observers during the same drive and send their output to the Store log.
 D=$(cd "$(dirname "$0")" && pwd)
 NODE=$(command -v node || echo /usr/bin/node)
-sec() { echo "== $*"; }
-echo "car-probe 0.6.0 begin $(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
+PYTHON=$(command -v python3 || true)
+if [ -z "$PYTHON" ]; then
+    for candidate in /var/opt/mgu-python/current/bin/python3 /var/opt/mgu-python/versions/*/bin/python3; do
+        if [ -x "$candidate" ]; then PYTHON=$candidate; break; fi
+    done
+fi
+if [ -z "$PYTHON" ]; then
+    echo "BMW Navigation probe: install mgu-python in MGU Store first"
+    exit 1
+fi
+CP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/car-probe-nav.XXXXXX") || exit 1
+export CP_DIR
+LISTENER=
+cleanup() {
+    if [ -n "$LISTENER" ]; then
+        kill "$LISTENER" 2>/dev/null || true
+        wait "$LISTENER" 2>/dev/null || true
+    fi
+    rm -rf "$CP_DIR"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
-sec "the turn signal (flick it left, right, hazard lights, while this runs)"
-OUT=/tmp/car-probe-blink.$$
-"$NODE" "$D/probe-blinker.js" > "$OUT" 2>&1 &
-PID=$!
-n=0
-while kill -0 "$PID" 2>/dev/null && [ "$n" -lt 90 ]; do sleep 1; n=$((n + 1)); done
-kill -0 "$PID" 2>/dev/null && { kill -9 "$PID" 2>/dev/null; echo "blinker probe: stopped after 90 s"; }
-cut -c 1-600 "$OUT" | head -n 300
-rm -f "$OUT"
-
-sec "someip native module"
-ls -l /usr/lib/someip.node 2>&1
-for p in /usr/lib /opt /var/opt/public/oap; do
-    find "$p" -maxdepth 7 -type d -name someip -path '*node_modules*' 2>/dev/null | head -n 3
-done
-
-echo "car-probe end"
+CP_RUN_MS=100000 CP_BEAT_MS=15000 "$NODE" "$D/probe-listen.js" &
+LISTENER=$!
+"$PYTHON" -u "$D/probe-sniff.py" 90 > "$CP_DIR/wire.log" 2>&1
+RESULT=$?
+kill "$LISTENER" 2>/dev/null || true
+wait "$LISTENER" 2>/dev/null || true
+LISTENER=
+echo "== BMW Navigation probe: time-ordered UTC log =="
+for file in "$CP_DIR/car-probe-listen.log" "$CP_DIR/wire.log"; do
+    if [ -f "$file" ]; then cat "$file"; fi
+done | LC_ALL=C sort
+exit "$RESULT"
