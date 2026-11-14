@@ -75,6 +75,35 @@
           "oap-sdk"
         ]
       }
+    },
+    {
+      "id": "jap_ridetube",
+      "kind": "app",
+      "path": "vendor/ridetube/apps/jap_ridetube",
+      "manifest": "app.json",
+      "icon": "icon.png",
+      "mguHmi": [
+        "ID7"
+      ],
+      "requires": {
+        "jap-ridetube-d": "0.3.9",
+        "mgu-render": "0.6.11",
+        "mgu-inputgate": "1.0.0"
+      },
+      "build": {
+        "python": "vendor/ridetube/kit/tools/build.py",
+        "args": [
+          "{id}"
+        ],
+        "sdk": "vendor/ridetube/oap-sdk",
+        "output": "vendor/ridetube/dist/{id}@{version}.tgz",
+        "shared": [
+          "vendor/ridetube/kit",
+          "vendor/ridetube/oap-sdk",
+          "vendor/ridetube/LICENSE",
+          "vendor/ridetube/THIRD_PARTY_LICENSES"
+        ]
+      }
     }
   ],
   "tools": [

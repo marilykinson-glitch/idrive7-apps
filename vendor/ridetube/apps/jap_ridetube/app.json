@@ -1,0 +1,315 @@
+{
+  "id": "jap_ridetube",
+  "title": "YouTube khi đỗ xe",
+  "description": "Ứng dụng YouTube không chính thức cho BMW iDrive 7. Tìm video, xem kênh và phát âm thanh qua xe. Hình ảnh chỉ hiện khi xe đứng yên và có tín hiệu tốc độ hợp lệ.",
+  "version": "0.3.9",
+  "license": "GPL-3.0-or-later",
+  "vendor": "custom",
+  "loggingId": "OAA6",
+  "iconGlyph": "RT",
+  "signals": {
+    "de.bmw.infotainment.vehicle.Vehicle2": {
+      "statusCarSpeed2": "rs"
+    },
+    "de.bmw.infotainment.vehicle.CDS": {
+      "statusBattery2": "rs"
+    }
+  },
+  "screens": [
+    {
+      "name": "VIEW",
+      "kind": "canvas",
+      "title": "YouTube khi đỗ xe",
+      "hmi": false,
+      "bg": "#0f0f0f",
+      "buttons": [
+        [
+          "BTN_PLAY",
+          "Phát"
+        ],
+        [
+          "BTN_RW",
+          "-10 s"
+        ],
+        [
+          "BTN_FF",
+          "+10 s"
+        ],
+        [
+          "BTN_LIST",
+          "Trình phát"
+        ],
+        [
+          "BTN_FIND",
+          "Tìm kiếm"
+        ]
+      ]
+    },
+    {
+      "name": "MAIN",
+      "kind": "menu",
+      "title": "Tìm video YouTube",
+      "settings": true,
+      "items": [
+        [
+          "button",
+          "BTN_SEARCH",
+          "Tìm kiếm"
+        ],
+        [
+          "text",
+          "MAIN_INFO",
+          ""
+        ],
+        [
+          "button",
+          "BTN_NOW",
+          "Đang phát"
+        ],
+        [
+          "button",
+          "BTN_RESULTS",
+          "Kết quả"
+        ],
+        [
+          "button",
+          "BTN_HOME",
+          "Trang chủ"
+        ],
+        [
+          "button",
+          "BTN_SUBS",
+          "Kênh đăng ký"
+        ],
+        [
+          "button",
+          "BTN_WL",
+          "Xem sau"
+        ],
+        [
+          "button",
+          "BTN_S1",
+          ""
+        ],
+        [
+          "button",
+          "BTN_S2",
+          ""
+        ],
+        [
+          "button",
+          "BTN_S3",
+          ""
+        ],
+        [
+          "button",
+          "BTN_S4",
+          ""
+        ],
+        [
+          "button",
+          "BTN_S5",
+          ""
+        ],
+        [
+          "button",
+          "BTN_S6",
+          ""
+        ],
+        [
+          "button",
+          "BTN_ACCOUNT",
+          "Đăng nhập"
+        ],
+        [
+          "text",
+          "MAIN_SB",
+          "Skip data: SponsorBlock (sponsor.ajay.app), CC BY-NC-SA 4.0"
+        ]
+      ]
+    }
+  ],
+  "settings": [
+    {
+      "key": "fill",
+      "label": "Fill the screen (crops the video; off: black side bars)",
+      "type": "bool",
+      "default": false,
+      "reset": 2
+    },
+    {
+      "key": "quality",
+      "label": "Video quality",
+      "type": "choice",
+      "default": "auto",
+      "options": [
+        [
+          "auto",
+          "Auto (720p on Wi-Fi, 480p on phone data)"
+        ],
+        [
+          "720",
+          "720p"
+        ],
+        [
+          "480",
+          "480p (less data)"
+        ],
+        [
+          "360",
+          "360p (least data)"
+        ]
+      ]
+    },
+    {
+      "key": "members",
+      "label": "Show members-only videos",
+      "type": "bool",
+      "default": false
+    },
+    {
+      "key": "sb_sponsor",
+      "label": "SponsorBlock: Sponsors",
+      "type": "choice",
+      "default": "skip",
+      "options": [
+        [
+          "skip",
+          "Skip"
+        ],
+        [
+          "ask",
+          "Show a Skip button"
+        ],
+        [
+          "off",
+          "Off"
+        ]
+      ]
+    },
+    {
+      "key": "sb_selfpromo",
+      "label": "SponsorBlock: Self-promotion",
+      "type": "choice",
+      "default": "skip",
+      "options": [
+        [
+          "skip",
+          "Skip"
+        ],
+        [
+          "ask",
+          "Show a Skip button"
+        ],
+        [
+          "off",
+          "Off"
+        ]
+      ]
+    },
+    {
+      "key": "sb_interaction",
+      "label": "SponsorBlock: Like & subscribe reminders",
+      "type": "choice",
+      "default": "skip",
+      "options": [
+        [
+          "skip",
+          "Skip"
+        ],
+        [
+          "ask",
+          "Show a Skip button"
+        ],
+        [
+          "off",
+          "Off"
+        ]
+      ]
+    },
+    {
+      "key": "sb_intro",
+      "label": "SponsorBlock: Intros",
+      "type": "choice",
+      "default": "skip",
+      "options": [
+        [
+          "skip",
+          "Skip"
+        ],
+        [
+          "ask",
+          "Show a Skip button"
+        ],
+        [
+          "off",
+          "Off"
+        ]
+      ]
+    },
+    {
+      "key": "sb_outro",
+      "label": "SponsorBlock: End cards and credits",
+      "type": "choice",
+      "default": "ask",
+      "options": [
+        [
+          "skip",
+          "Skip"
+        ],
+        [
+          "ask",
+          "Show a Skip button"
+        ],
+        [
+          "off",
+          "Off"
+        ]
+      ]
+    },
+    {
+      "key": "sb_music_offtopic",
+      "label": "SponsorBlock: Non-music parts of music videos",
+      "type": "choice",
+      "default": "off",
+      "options": [
+        [
+          "skip",
+          "Skip"
+        ],
+        [
+          "ask",
+          "Show a Skip button"
+        ],
+        [
+          "off",
+          "Off"
+        ]
+      ]
+    },
+    {
+      "key": "battery",
+      "label": "Parked: pause when the 12 V battery is under",
+      "type": "choice",
+      "default": "65",
+      "options": [
+        [
+          "60",
+          "60 %"
+        ],
+        [
+          "65",
+          "65 %"
+        ],
+        [
+          "70",
+          "70 %"
+        ],
+        [
+          "0",
+          "Never"
+        ]
+      ]
+    }
+  ]
+}
