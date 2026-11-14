@@ -1,0 +1,163 @@
+--- a/apps/jap_ridetube/app.json
++++ b/apps/jap_ridetube/app.json
+@@ -1,8 +1,8 @@
+ {
+   "id": "jap_ridetube",
+-  "title": "RideTube",
+-  "description": "Video in the car: an unofficial client for YouTube. Your Home, Subscriptions and Watch later (signed in on the car), search, channels and chapters; the sound through the car's media player, the picture only while parked (a podcast view while driving). Needs the jap-ridetube-d tool.",
+-  "version": "0.3.8",
++  "title": "YouTube khi đỗ xe",
++  "description": "Ứng dụng YouTube không chính thức cho BMW iDrive 7. Tìm video, xem kênh và phát âm thanh qua xe. Hình ảnh chỉ hiện khi xe đứng yên và có tín hiệu tốc độ hợp lệ.",
++  "version": "0.3.9",
+   "license": "GPL-3.0-or-later",
+   "vendor": "custom",
+   "loggingId": "OAA6",
+@@ -19,13 +19,13 @@
+     {
+       "name": "VIEW",
+       "kind": "canvas",
+-      "title": "RideTube",
++      "title": "YouTube khi đỗ xe",
+       "hmi": false,
+       "bg": "#0f0f0f",
+       "buttons": [
+         [
+           "BTN_PLAY",
+-          "Play"
++          "Phát"
+         ],
+         [
+           "BTN_RW",
+@@ -37,24 +37,24 @@
+         ],
+         [
+           "BTN_LIST",
+-          "Player"
++          "Trình phát"
+         ],
+         [
+           "BTN_FIND",
+-          "Search"
++          "Tìm kiếm"
+         ]
+       ]
+     },
+     {
+       "name": "MAIN",
+       "kind": "menu",
+-      "title": "RideTube search",
++      "title": "Tìm video YouTube",
+       "settings": true,
+       "items": [
+         [
+           "button",
+           "BTN_SEARCH",
+-          "Search"
++          "Tìm kiếm"
+         ],
+         [
+           "text",
+@@ -64,27 +64,27 @@
+         [
+           "button",
+           "BTN_NOW",
+-          "Now playing"
++          "Đang phát"
+         ],
+         [
+           "button",
+           "BTN_RESULTS",
+-          "Results"
++          "Kết quả"
+         ],
+         [
+           "button",
+           "BTN_HOME",
+-          "Home"
++          "Trang chủ"
+         ],
+         [
+           "button",
+           "BTN_SUBS",
+-          "Subscriptions"
++          "Kênh đăng ký"
+         ],
+         [
+           "button",
+           "BTN_WL",
+-          "Watch later"
++          "Xem sau"
+         ],
+         [
+           "button",
+@@ -119,7 +119,7 @@
+         [
+           "button",
+           "BTN_ACCOUNT",
+-          "Sign in"
++          "Đăng nhập"
+         ],
+         [
+           "text",
+@@ -162,12 +162,6 @@
+       ]
+     },
+     {
+-      "key": "video_driving",
+-      "label": "Video while driving - at your own risk, only for a car coded for video in motion (passengers); takes effect once parked",
+-      "type": "bool",
+-      "default": false
+-    },
+-    {
+       "key": "members",
+       "label": "Show members-only videos",
+       "type": "bool",
+--- a/apps/jap_ridetube/main.js
++++ b/apps/jap_ridetube/main.js
+@@ -31,8 +31,7 @@
+  *   MAIN  HMI menu (Search): the HMI's speller, Now playing, Results, Home, Subscriptions, Watch later, recent
+  *         searches / suggestions, then Sign in / Sign out (pressed twice).
+  *
+- * Video only while parked (kit parked.js), unless the "Video while driving" setting is on (for a car coded
+- * for video in motion): driving off turns the picture off (daemon `video off`,
++ * Video only while stationary. Movement or a stale speed hides the picture (daemon `video off`,
+  * renderer DROP_VIDEO), the sound plays on; parked again, it comes back. The app stays ACTIVE
+  * while hidden as long as sound plays (ctx.background), because closing the socket stops playback.
+  * Never exits: every handler logs its errors.
+@@ -71,14 +70,7 @@
+     async start(ctx) {
+         const { ui, settings, log } = ctx;
+         const parked = Parked.watch(ctx, log, { strict: true });
+-        // the drive lock: Video while driving counts only once switched on while parked, so a press while moving
+-        // cannot bring the picture up; switching it off works at once
+-        let videoDrivingOk = false;
+-        const noVideo = () => {
+-            const on = settings.get('video_driving') === true, moving = parked.moving();
+-            videoDrivingOk = moving ? videoDrivingOk && on : on;
+-            return moving && !videoDrivingOk;
+-        };
++        const noVideo = () => parked.moving() || parked.speed() !== 0;
+ 
+         /* ---------- the daemon ---------- */
+         const ctl = new Ctl(process.env.MGU_YT_SOCKET || SOCKET, log);
+@@ -721,7 +713,7 @@
+             const chip = 'Podcast mode · driving', cw = cv.textWidth(chip, 22, LIT) + 40;
+             cv.roundRect(x0 + 170, top, cw, 40, 20, C.ph);
+             cv.text(chip, x0 + 170 + cw / 2, top + 28, 22, C.dim, { literal: true, align: 'center' });
+-            cv.text('Video returns when parked', SW - 60, top + 28, 22, '#717171', { literal: true, align: 'right' });
++            cv.text('Hình ảnh trở lại khi xe dừng', SW - 60, top + 28, 22, '#717171', { literal: true, align: 'right' });
+             // laid out from the bottom: the notice / up-next row, the controls, the bar; the artwork takes what is left
+             const cy = SH - 178, by = cy - 128, ay = top + 72, ah = Math.max(120, by - 56 - ay), aw = Math.round(ah * 16 / 9), ax = x0;
+             const th = model.thumbs[model.id];
+--- a/kit/runtime/parked.js
++++ b/kit/runtime/parked.js
+@@ -25,7 +25,8 @@
+     ctx.signals.watch('de.bmw.infotainment.vehicle.Vehicle2', '1', {
+         statusCarSpeed2: (v) => {
+             const k = v && v.speedVehicleCentreOfGravity;
+-            if (typeof k === 'number' && k !== 65535) { speed = k * 0.015625; at = now(); }
++            if (Number.isFinite(k) && k >= 0 && k < 65535) { speed = k * 0.015625; at = now(); }
++            else if (strict) { speed = null; }
+         },
+     }, log, { pollMs: 2000 }).then((s) => log && log.info('parked check: speed ' + (s.error ? 'error: ' + s.error : 'subscribed')));
+     return {
