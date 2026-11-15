@@ -57,10 +57,11 @@ const X0 = 136, TW = 320, TH = 180, PITCH = 348, PER_ROW = 4;   // tiles: 16:9 t
 const TILE_H = TH + 98, HEAD_H = 50, SHELF_GAP = 30, GRID_GAP = 22;   // a tile with its text; a shelf's title row
 const OVERLAY_MS = 4000;                                 // the player's controls hide this long after a tap (playing)
 const SEARCH_MS = 8000;                                  // a search with no answer by then is an error on screen
-const SUGGEST = ['Music', 'News', 'Cars', 'Podcasts', 'Comedy', 'Trailers'];
+const SUGGEST = ['Âm nhạc', 'Tin tức', 'Ô tô', 'Podcast', 'Hài', 'Trailer phim'];
 const SLOTS = ['BTN_S1', 'BTN_S2', 'BTN_S3', 'BTN_S4', 'BTN_S5', 'BTN_S6'];
 const TABS = ['home', 'subs', 'wl'];
-const NAMES = { home: 'Home', subs: 'Subscriptions', wl: 'Watch later', results: 'Results' };
+const VI = require('./vi');
+const NAMES = { home: 'Trang chủ', subs: 'Kênh đăng ký', wl: 'Xem sau', results: 'Kết quả' };
 const FEED_MS = 15000;                                   // a feed with no answer by then is an error on screen
 const SIGNIN_URL = 'https://www.google.com/device';
 
@@ -137,9 +138,9 @@ mgu.run({
             show('results');
             ui.open('VIEW');
         }
-        ui.onClick('BTN_SEARCH', () => spell(ctx.app, 'Search videos')
+        ui.onClick('BTN_SEARCH', () => spell(ctx.app, 'Tìm video')
             .then((t) => search(t))
-            .catch((e) => { log.error('speller', e); ui.text('MAIN_INFO', 'The keyboard did not open: ' + (e.message || e)); }));
+            .catch((e) => { log.error('speller', e); ui.text('MAIN_INFO', 'Không mở được bàn phím: ' + (e.message || e)); }));
         SLOTS.forEach((b, i) => ui.onClick(b, () => search(slots()[i])));
         ui.onClick('BTN_NOW', () => { show('player'); ui.open('VIEW'); });
         ui.onClick('BTN_RESULTS', () => { show('results'); ui.open('VIEW'); });
@@ -157,11 +158,11 @@ mgu.run({
 
         function info() {
             let s;
-            if (!model.connected) s = 'The RideTube service (jap-ridetube-d) is not running';
-            else if (model.searchError) s = 'Search: ' + model.searchError;
-            else if (model.error) s = 'Error: ' + model.error;
-            else if (model.active()) s = (model.state === 'preparing' ? 'Preparing ' + Math.round(model.pct) + ' %: ' : model.state === 'paused' ? 'Paused: ' : 'Playing: ') + model.title;
-            else s = 'Search, or pick a recent search below';
+            if (!model.connected) s = 'Dịch vụ phát video chưa chạy (jap-ridetube-d)';
+            else if (model.searchError) s = 'Tìm kiếm: ' + VI.error(model.searchError);
+            else if (model.error) s = 'Lỗi: ' + VI.error(model.error);
+            else if (model.active()) s = (model.state === 'preparing' ? 'Đang chuẩn bị ' + Math.round(model.pct) + ' %: ' : model.state === 'paused' ? 'Tạm dừng: ' : 'Đang phát: ') + model.title;
+            else s = 'Tìm video hoặc chọn từ lịch sử bên dưới';
             ui.text('MAIN_INFO', s);
         }
         info();
@@ -200,11 +201,11 @@ mgu.run({
         }
         let lastPlay = null, lastList = null, lastAcct = null;
         function labels() {
-            const p = model.state === 'playing' ? 'Pause' : 'Play';
+            const p = model.state === 'playing' ? 'Tạm dừng' : 'Phát';
             if (p !== lastPlay) { lastPlay = p; ui.text('BTN_PLAY', p); }
-            const l = mode === 'player' ? NAMES[browse] : model.active() ? 'Now playing' : 'Player';
+            const l = mode === 'player' ? NAMES[browse] : model.active() ? 'Đang phát' : 'Trình phát';
             if (l !== lastList) { lastList = l; ui.text('BTN_LIST', l); }
-            const a = model.auth.state !== 'signed_in' ? 'Sign in' : signOutArmed ? 'Press again to sign out' : 'Sign out';
+            const a = model.auth.state !== 'signed_in' ? 'Đăng nhập' : signOutArmed ? 'Nhấn lần nữa để đăng xuất' : 'Đăng xuất';
             if (a !== lastAcct) { lastAcct = a; ui.text('BTN_ACCOUNT', a); }
         }
         ui.onClick('BTN_PLAY', () => model.toggle());
@@ -229,14 +230,14 @@ mgu.run({
         }
         const shownAt = () => Math.max(0, Math.min(model.total > 0 ? model.total : Infinity, model.elapsed + pend));
         // preparing: its percentage, or the network lost and the daemon trying again
-        const prepText = () => (model.retry ? 'No connection - trying again (' + model.retry + ')...' : 'Preparing... ' + Math.round(model.pct || 0) + ' %');
+        const prepText = () => (model.retry ? 'Mất kết nối — đang thử lại (' + model.retry + ')...' : 'Đang chuẩn bị… ' + Math.round(model.pct || 0) + ' %');
         // a failed play: Try again (the same video, the queue kept)
         const again = () => { if (model.id) play(model.id, model.item(model.id)); };
         /* ---------- SponsorBlock: per category Skip, a Skip button (ask) or Off (Settings) ---------- */
-        const SB = [['sponsor', 'sponsor'], ['selfpromo', 'self-promotion'], ['interaction', 'subscribe reminder'], ['intro', 'intro'], ['outro', 'end cards'], ['music_offtopic', 'non-music part']];
+        const SB = [['sponsor', 'tài trợ'], ['selfpromo', 'tự quảng bá'], ['interaction', 'lời nhắc đăng ký'], ['intro', 'mở đầu'], ['outro', 'phần kết'], ['music_offtopic', 'đoạn ngoài bài hát']];
         const sbMode = (cat) => settings.get('sb_' + cat) || 'off';
         const sbSkip = () => SB.map((c) => c[0]).filter((c) => sbMode(c) === 'skip');
-        const sbName = (cat) => (SB.find((c) => c[0] === cat) || [0, 'segment'])[1];
+        const sbName = (cat) => (SB.find((c) => c[0] === cat) || [0, 'phân đoạn'])[1];
         const sbSegs = (ex) => ex.segments.filter((g) => sbMode(g[2]) !== 'off');
         const sbColor = (g) => (sbMode(g[2]) === 'ask' ? '#ffd400' : '#00d400');
         // the segment the clock is in whose category asks: its Skip button shows (and the overlay stays)
@@ -259,10 +260,10 @@ mgu.run({
             if (parked.moving() || model.state !== 'playing') return;          // driving charges it
             if (soc < lim) {
                 model.toggle();
-                model.toast = { text: '12 V battery at ' + soc + ' % - paused. Start the car to keep watching', until: Date.now() + 15000, warn: true };
+                model.toast = { text: 'Ắc quy 12 V còn ' + soc + ' % — đã tạm dừng. Khởi động xe để xem tiếp', until: Date.now() + 15000, warn: true };
             } else if (soc < lim + 5 && !socWarned) {
                 socWarned = true;
-                model.toast = { text: '12 V battery at ' + soc + ' % - it pauses at ' + lim + ' %', until: Date.now() + 8000, warn: true };
+                model.toast = { text: 'Ắc quy 12 V còn ' + soc + ' % — sẽ tạm dừng khi còn ' + lim + ' %', until: Date.now() + 8000, warn: true };
             } else return;
             wake(); changed();
         }
@@ -370,19 +371,19 @@ mgu.run({
 
         /* the left rail: Search, Home, Subscriptions, Watch later */
         const RAIL = [
-            ['search', 'Search', (cv, x, y, c) => { cv.arc(x - 4, y - 4, 9, 12.5, 0, 360, c); cv.line(x + 4.5, y + 4.5, x + 14, y + 14, 4.5, c); }],
-            ['home', 'Home', (cv, x, y, c, bg) => {
+            ['search', 'Tìm kiếm', (cv, x, y, c) => { cv.arc(x - 4, y - 4, 9, 12.5, 0, 360, c); cv.line(x + 4.5, y + 4.5, x + 14, y + 14, 4.5, c); }],
+            ['home', 'Trang chủ', (cv, x, y, c, bg) => {
                 cv.quad([[x, y - 18], [x + 19, y - 1], [x - 19, y - 1], [x, y - 18]], c);
                 cv.fillRect(x - 13, y - 3, 26, 19, c); cv.fillRect(x - 4, y + 6, 8, 10, bg);
             }],
-            ['subs', 'Subscriptions', (cv, x, y, c, bg) => {
+            ['subs', 'Kênh đăng ký', (cv, x, y, c, bg) => {
                 cv.roundRect(x - 11, y - 18, 22, 3, 1.5, c); cv.roundRect(x - 15, y - 12, 30, 3, 1.5, c);
                 cv.roundRect(x - 18, y - 6, 36, 24, 5, c); tri(cv, x + 1, y + 6, 12, bg);
             }],
-            ['wl', 'Watch later', (cv, x, y, c) => { cv.arc(x, y, 14, 17.5, 0, 360, c); cv.line(x, y + 1, x, y - 9, 3.5, c); cv.line(x, y, x + 7, y + 5, 3.5, c); }],
+            ['wl', 'Xem sau', (cv, x, y, c) => { cv.arc(x, y, 14, 17.5, 0, 360, c); cv.line(x, y + 1, x, y - 9, 3.5, c); cv.line(x, y, x + 7, y + 5, 3.5, c); }],
         ];
         // while something plays: back to the player (the bar's Now playing, where the kit runs the screen)
-        const PLAYING = ['player', 'Playing', (cv, x, y, c) => { [10, 20, 14].forEach((h, k) => cv.roundRect(x - 15 + k * 11, y + 8 - h, 8, h + 8, 2, c)); }];
+        const PLAYING = ['player', 'Đang phát', (cv, x, y, c) => { [10, 20, 14].forEach((h, k) => cv.roundRect(x - 15 + k * 11, y + 8 - h, 8, h + 8, 2, c)); }];
         function drawRail(cv) {
             const sel = mode === 'results' ? 'search' : mode === 'channel' ? 'subs' : mode, bottom = H + (cv.own ? cv.extra : 0);
             const items = cv.own && model.active() ? RAIL.concat([PLAYING]) : RAIL;
@@ -391,7 +392,7 @@ mgu.run({
                 const cx = 62, cy = 96 + Math.round(i * pitch), on = m === sel, bg = on ? '#2c2c2c' : C.bg, c = on ? '#ffffff' : C.dim;
                 if (on) { cv.roundRect(18, cy - 38, 90, 84, 16, bg); cv.roundRect(18, cy - 14, 5, 28, 2.5, C.red); }
                 glyph(cv, cx, cy - 8, c, bg);
-                cv.text(name === 'Subscriptions' ? 'Subs' : name, cx, cy + 34, 18, c, { literal: true, align: 'center', font: on ? 'bold' : 'label' });
+                cv.text(name === 'Kênh đăng ký' ? 'Đăng ký' : name, cx, cy + 34, 16, c, { literal: true, align: 'center', font: on ? 'bold' : 'label' });
                 if (cv.own) cv.target(16, cy - 38, 92, 84, () => (m === 'search' ? ui.open('MAIN') : show(m)), 'rail:' + m, 16);
             });
         }
@@ -419,15 +420,15 @@ mgu.run({
             }
             if (cur) {
                 cv.strokeRoundRect(x - 2, y - 2, TW + 4, TH + 4, 14, 3, C.red);
-                const pw = cv.textWidth('NOW PLAYING', 16, { literal: true, font: 'bold', spacing: 1 }) + 20;
+                const pw = cv.textWidth('ĐANG PHÁT', 16, { literal: true, font: 'bold', spacing: 1 }) + 20;
                 cv.roundRect(x + 10, y + 10, pw, 28, 6, C.red);
-                cv.text('NOW PLAYING', x + 20, y + 30, 16, '#ffffff', { literal: true, font: 'bold', spacing: 1 });
+                cv.text('ĐANG PHÁT', x + 20, y + 30, 16, '#ffffff', { literal: true, font: 'bold', spacing: 1 });
             }
             const lines = wrap(cv, String(r.title || r.id));
             lines.forEach((l, k) => cv.text(l, x, y + TH + 32 + k * 30, 24, C.text, LITB));
             const my = y + TH + 32 + lines.length * 30 - 2;
             const meta = [r.channel].concat(Array.isArray(r.meta) ? r.meta : []).filter((m) => typeof m === 'string' && m).join(' · ');
-            if (meta) cv.text(fit(cv, meta, 20, TW, LIT), x, my, 20, C.dim, LIT);
+            if (meta) cv.text(fit(cv, VI.metadata(meta), 20, TW, LIT), x, my, 20, C.dim, LIT);
         }
 
         /* a channel: a round mark with its initial, its name, its @handle; or an action (r.act: Search channels, All) */
@@ -459,7 +460,7 @@ mgu.run({
         // the channels, filtered by chanQ (the keyboard: one letter = names starting with it, else names holding it)
         let chanQ = '';
         function findChannel() {
-            spell(ctx.app, 'Find a channel').then((t) => {
+            spell(ctx.app, 'Tìm kênh').then((t) => {
                 if (t === null || t === undefined) { ui.open('VIEW'); return; }
                 chanQ = String(t).trim(); vs('subs').sy = 0; vs('subs').off = {}; dirty = true;
                 show('subs'); ui.open('VIEW');
@@ -469,24 +470,24 @@ mgu.run({
         function openChannel(c) { if (mode !== 'channel') chanFrom = mode; model.openChannel(c.id, c.title); show('channel'); vs('channel').sy = 0; vs('channel').off = {}; }
         function chanSections() {
             const ch = model.chans;
-            if (!ch || (!ch.items.length && ch.loading)) return [{ title: 'Channels', sub: 'Loading...', items: [], chan: true }];
-            if (!ch.items.length) return ch.error ? [{ title: 'Channels', sub: ch.error, items: [], chan: true }] : [];
-            const find = { id: '::find', title: chanQ ? 'Search again' : 'Search channels', sub: 'A letter, or a word', act: findChannel, glyph: KEYS };
-            if (!chanQ) return [{ title: 'Channels', sub: ch.items.length + ' subscriptions, A-Z', items: [find].concat(ch.items), chan: true }];
+            if (!ch || (!ch.items.length && ch.loading)) return [{ title: 'Các kênh', sub: 'Đang tải…', items: [], chan: true }];
+            if (!ch.items.length) return ch.error ? [{ title: 'Các kênh', sub: VI.error(ch.error), items: [], chan: true }] : [];
+            const find = { id: '::find', title: chanQ ? 'Tìm lại' : 'Tìm kênh', sub: 'Nhập một chữ cái hoặc từ khóa', act: findChannel, glyph: KEYS };
+            if (!chanQ) return [{ title: 'Các kênh', sub: ch.items.length + ' kênh đăng ký, A–Z', items: [find].concat(ch.items), chan: true }];
             const hits = model.findChannels(chanQ);
-            const all = { id: '::all', title: 'All channels', sub: ch.items.length + ' subscriptions', act: () => { chanQ = ''; vs('subs').off = {}; dirty = true; }, glyph: ALL };
-            return [{ title: (chanQ.length === 1 ? 'Channels starting with “' : 'Channels matching “') + chanQ + '”',
-                sub: hits.length ? hits.length + (hits.length === 1 ? ' channel' : ' channels') : 'none', items: [find, all].concat(hits), chan: true, grid: true }];
+            const all = { id: '::all', title: 'Tất cả kênh', sub: ch.items.length + ' kênh đăng ký', act: () => { chanQ = ''; vs('subs').off = {}; dirty = true; }, glyph: ALL };
+            return [{ title: (chanQ.length === 1 ? 'Kênh bắt đầu bằng “' : 'Kênh khớp với “') + chanQ + '”',
+                sub: hits.length ? hits.length + (hits.length === 1 ? ' kênh' : ' kênh') : 'none', items: [find, all].concat(hits), chan: true, grid: true }];
         }
         function drawChannel(cv) {
             const c = model.chan;
             if (!model.connected) return say(cv, OFF, OFF2);
-            if (!c) return say(cv, 'Pick a channel in Subscriptions');
-            if (!c.items.length) return say(cv, c.loading ? 'Loading ' + (c.title || 'the channel') + '...' : c.error === 'feed offline' ? 'The video service is not reachable - check the car\'s internet connection' : c.error || 'No videos on this channel', c.title || null);
+            if (!c) return say(cv, 'Chọn kênh trong Kênh đăng ký');
+            if (!c.items.length) return say(cv, c.loading ? 'Đang tải ' + (c.title || 'kênh') + '...' : c.error === 'feed offline' ? 'Không kết nối được dịch vụ video — kiểm tra Internet trên xe' : VI.error(c.error) || 'Kênh này chưa có video', c.title || null);
             const hid = hidden.indexOf(c.title) >= 0;
-            const tog = { id: '::hide', title: hid ? 'Show this channel' : 'Hide this channel', sub: hid ? 'Hidden from Home, Subscriptions, Search' : 'From Home, Subscriptions and Search',
+            const tog = { id: '::hide', title: hid ? 'Hiện kênh này' : 'Ẩn kênh này', sub: hid ? 'Đã ẩn khỏi Trang chủ, Kênh đăng ký và Tìm kiếm' : 'Ẩn khỏi Trang chủ, Kênh đăng ký và Tìm kiếm',
                 act: () => toggleHidden(c.title), glyph: hid ? SHOW : BLOCK };
-            drawPage(cv, (c.shelves && c.shelves.length ? c.shelves : [{ title: 'Videos', items: c.items, grid: true }])
+            drawPage(cv, (c.shelves && c.shelves.length ? c.shelves : [{ title: 'Video', items: c.items, grid: true }])
                 .map((s, i) => (i === 0 ? Object.assign({}, s, { title: c.title + (s.title ? ' · ' + s.title : ''), items: [tog].concat(s.items) }) : s)));
         }
 
@@ -536,7 +537,7 @@ mgu.run({
                 if (ri < first - 1 || ri > lastV + 1) return;
                 const y = ys[ri], shown = vis[ri], n = row.items.length, ty = y + (row.title ? HEAD_H : 0);
                 if (row.title && shown) {
-                    const tw = cv.text(fit(cv, row.title, 30, 1100, LITB), X0, y + 34, 30, '#ffffff', LITB);
+                    const tw = cv.text(fit(cv, VI.heading(row.title), 30, 1100, LITB), X0, y + 34, 30, '#ffffff', LITB);
                     if (row.sub) cv.text(row.sub, X0 + tw + 18, y + 34, 22, C.dim, LIT);
                 }
                 const max = row.hs ? n - PER_ROW : 0, off = Math.max(0, Math.min(max, st.off[ri] || 0));
@@ -596,32 +597,32 @@ mgu.run({
             cv.text(fit(cv, msg, 34, 1360, LIT), browsing() ? MID : W / 2, 290, 34, '#ffffff', { literal: true, align: 'center' });
             if (sub) cv.text(fit(cv, sub, 24, 1360, LIT), browsing() ? MID : W / 2, 336, 24, C.dim, { literal: true, align: 'center' });
         }
-        const OFF = 'The RideTube service (jap-ridetube-d) is not running';
-        const OFF2 = 'Install the RideTube service (jap-ridetube-d) from the MGU Store';
+        const OFF = 'Dịch vụ phát video chưa chạy (jap-ridetube-d)';
+        const OFF2 = 'Cài dịch vụ jap-ridetube-d trong MGU Store';
         function drawResults(cv) {
             if (!model.connected) return say(cv, OFF, OFF2);
-            if (model.searching) return say(cv, 'Searching "' + model.q + '"...');
-            if (model.searchError) return say(cv, 'Search: ' + model.searchError, 'Try again from Search');
-            if (!model.results.length) return say(cv, model.q ? 'Nothing found for "' + model.q + '"' : 'Search (bar button) to find videos', model.q ? 'Try other words' : null);
-            drawPage(cv, [{ title: 'Results for “' + model.q + '”', items: shown(model.results), grid: true }]);
+            if (model.searching) return say(cv, 'Đang tìm "' + model.q + '"...');
+            if (model.searchError) return say(cv, 'Tìm kiếm: ' + VI.error(model.searchError), 'Mở Tìm kiếm để thử lại');
+            if (!model.results.length) return say(cv, model.q ? 'Không tìm thấy kết quả cho "' + model.q + '"' : 'Chọn Tìm kiếm để tìm video', model.q ? 'Thử từ khóa khác' : null);
+            drawPage(cv, [{ title: 'Kết quả cho “' + model.q + '”', items: shown(model.results), grid: true }]);
         }
         function drawFeed(cv, which) {
             const f = model.feeds[which], a = model.auth.state;
             if (!model.connected) return say(cv, OFF, OFF2);
-            if (a === 'unsupported') return say(cv, 'Signing in needs a newer jap-ridetube-d tool on the car');
+            if (a === 'unsupported') return say(cv, 'Cập nhật dịch vụ jap-ridetube-d để đăng nhập');
             if (a !== 'signed_in') return drawSignIn(cv);
             const chans = which === 'subs' && model.chans && model.chans.items.length;   // the channels show without the videos
             if ((!f || !f.items.length) && !chans) {
-                return say(cv, !f || f.loading ? 'Loading ' + NAMES[which] + '...' : f.error === 'feed offline' ? 'The video service is not reachable - check the car\'s internet connection'
-                    : f.error ? NAMES[which] + ': ' + f.error : which === 'wl' ? 'Nothing in Watch later' : 'No videos here yet', which === 'wl' && f && !f.loading && !f.error ? 'Videos you save for later show here' : null);
+                return say(cv, !f || f.loading ? 'Đang tải ' + NAMES[which] + '...' : f.error === 'feed offline' ? 'Không kết nối được dịch vụ video — kiểm tra Internet trên xe'
+                    : f.error ? NAMES[which] + ': ' + VI.error(f.error) : which === 'wl' ? 'Danh sách Xem sau đang trống' : 'Chưa có video', which === 'wl' && f && !f.loading && !f.error ? 'Video lưu để xem sau sẽ xuất hiện ở đây' : null);
             }
             let secs;
             if (which === 'home') {
                 const wl = model.feeds.wl;
-                secs = (model.resume.length ? [{ title: 'Continue watching', items: model.resume }] : [])
-                    .concat(f.shelves || [{ title: 'Recommended', items: f.items, grid: true }])
-                    .concat(wl && wl.items.length ? [{ title: 'Watch later', items: wl.items.slice(0, SHELF_MAX) }] : []);
-            } else secs = !f ? [] : f.shelves && which !== 'wl' ? f.shelves : [{ title: NAMES[which], sub: f.items.length + ' videos', items: f.items, grid: true }];
+                secs = (model.resume.length ? [{ title: 'Xem tiếp', items: model.resume }] : [])
+                    .concat(f.shelves || [{ title: 'Đề xuất', items: f.items, grid: true }])
+                    .concat(wl && wl.items.length ? [{ title: 'Xem sau', items: wl.items.slice(0, SHELF_MAX) }] : []);
+            } else secs = !f ? [] : f.shelves && which !== 'wl' ? f.shelves : [{ title: NAMES[which], sub: f.items.length + ' video', items: f.items, grid: true }];
             if (which === 'subs') secs = chanSections().concat(chanQ || !f || !f.items.length ? [] : secs);
             drawPage(cv, secs.map((sc) => (sc.chan ? sc : Object.assign({}, sc, { items: shown(sc.items) }))).filter((sc) => sc.chan || sc.items.length));
         }
@@ -630,17 +631,17 @@ mgu.run({
             const a = model.auth;
             // a code expired or refused, or signed out: a new one only when asked (a tap, or Sign in in the menu)
             if (a.state === 'error' || a.state === 'signed_out') {
-                say(cv, a.state === 'error' ? 'Sign-in is not available (' + (a.msg || 'error') + ') - tap to try again'
-                    : cv.own ? 'Tap here to get a sign-in code' : 'Sign in (menu) to get a sign-in code',
-                'Your Home, Subscriptions and Watch later, on the car');
+                say(cv, a.state === 'error' ? 'Chưa đăng nhập được (' + (VI.error(a.msg) || 'có lỗi') + ') — chạm để thử lại'
+                    : cv.own ? 'Chạm để lấy mã đăng nhập' : 'Chọn Đăng nhập trong menu để lấy mã',
+                'Trang chủ, Kênh đăng ký và Xem sau ngay trên xe');
                 if (cv.own) cv.target(MID - 520, 160, 1040, 200, () => model.authStart(true), 'signin', 16);
                 return;
             }
-            if (a.state !== 'code' || !a.code) return say(cv, 'Getting a sign-in code...');
+            if (a.state !== 'code' || !a.code) return say(cv, 'Đang lấy mã đăng nhập…');
             let url = /^https:\/\//.test(a.url || '') ? a.url : SIGNIN_URL, q;
             try { q = QR.encode(url); } catch (e) { url = SIGNIN_URL; q = QR.encode(url); }   // longer than a version 4 code holds
-            const code = { literal: true, font: 'bold', spacing: 6 }, cwid = cv.textWidth(a.code, 54, code), hint = 'Scan the code, or go to ' + url.replace(/^https:\/\/(www\.)?/, '');
-            const side = (q.length + 8) * 8, textW = Math.max(cwid + 56, cv.textWidth(hint, 26, LIT), 88 + cv.textWidth('Sign in', 44, LITB), 560);
+            const code = { literal: true, font: 'bold', spacing: 6 }, cwid = cv.textWidth(a.code, 54, code), hint = 'Quét mã hoặc truy cập ' + url.replace(/^https:\/\/(www\.)?/, '');
+            const side = (q.length + 8) * 8, textW = Math.max(cwid + 56, cv.textWidth(hint, 26, LIT), 88 + cv.textWidth('Đăng nhập', 44, LITB), 560);
             const cw = Math.min(1400, 44 + side + 80 + textW + 64), ch = 444, cx = Math.round(MID - cw / 2), cy = TOP + Math.max(14, Math.round((H + (cv.own ? cv.extra : 0) - TOP - ch) / 2)), dy = cy - 58;
             cv.roundRect(cx, cy, cw, ch, 24, C.card);
             const qx = cx + 44, qy = cy + Math.round((ch - side) / 2);
@@ -648,12 +649,12 @@ mgu.run({
             QR.draw(cv, url, qx, qy, 8);
             const tx = qx + side + 80;
             logo(cv, tx + 34, 128 + dy, 68);
-            cv.text('Sign in', tx + 88, 144 + dy, 44, '#ffffff', LITB);
-            cv.text('Enter this code on your phone', tx, 214 + dy, 30, C.dim, LIT);
+            cv.text('Đăng nhập', tx + 88, 144 + dy, 44, '#ffffff', LITB);
+            cv.text('Nhập mã này trên điện thoại', tx, 214 + dy, 30, C.dim, LIT);
             cv.roundRect(tx, 238 + dy, cwid + 56, 96, 16, C.bg);
             cv.text(a.code, tx + 28, 308 + dy, 54, '#ffffff', code);
             cv.text(hint, tx, 392 + dy, 26, C.dim, LIT);
-            cv.text('The account stays on the car; this app never sees a password', tx, 440 + dy, 20, '#717171', LIT);
+            cv.text('Tài khoản được lưu trên xe; ứng dụng không nhận mật khẩu', tx, 440 + dy, 20, '#717171', LIT);
         }
         function drawPlayer(cv) {
             cv.fillRect(0, TOP, W, H - TOP, '#000000');
@@ -668,7 +669,7 @@ mgu.run({
                 if (it && it.channel) cv.text(fit(cv, it.channel, 22, BOX.w - 60, LIT), BOX.x + 30, BOX.y + 82, 22, '#cccccc', LIT);
             }
             let mid = null;
-            if (!model.connected) mid = 'The RideTube service (jap-ridetube-d) is not running';
+            if (!model.connected) mid = 'Dịch vụ phát video chưa chạy (jap-ridetube-d)';
             else if (model.state === 'preparing') {
                 const p = Math.max(0, Math.min(100, model.pct || 0));
                 cv.circle(cx, cy - 20, 54, '#00000099');
@@ -676,11 +677,11 @@ mgu.run({
                 if (p > 0) cv.arc(cx, cy - 20, 44, 52, 0, p * 3.6, C.red, { round: true });
                 cv.text(Math.round(p) + '%', cx, cy - 10, 30, '#ffffff', { literal: true, font: 'bold', align: 'center' });
                 cv.text(prepText(), cx, cy + 82, 26, '#dddddd', { literal: true, align: 'center' });
-            } else if (model.state === 'error') mid = 'Error: ' + (model.error || 'playback stopped');
-            else if (!model.active()) mid = model.state === 'ended' ? 'Finished' : 'Pick a video on Home or Search';
-            else if (noVideo()) mid = 'Video stops while driving - the sound plays on';
-            else if (!cv.place || !gpu()) mid = 'The picture needs the GPU renderer (mgu-render) - the sound plays';
-            else if (!videoShown) mid = 'Starting the picture...';
+            } else if (model.state === 'error') mid = 'Lỗi: ' + (VI.error(model.error) || 'đã dừng phát');
+            else if (!model.active()) mid = model.state === 'ended' ? 'Đã phát xong' : 'Chọn video trong Trang chủ hoặc Tìm kiếm';
+            else if (noVideo()) mid = 'Xe đang chạy — chỉ phát âm thanh';
+            else if (!cv.place || !gpu()) mid = 'Cần mgu-render để hiện hình — âm thanh vẫn phát';
+            else if (!videoShown) mid = 'Đang mở hình ảnh…';
             if (model.state === 'paused' && !mid) { cv.circle(cx, cy, 60, '#000000a0'); cv.arc(cx, cy, 57, 60, 0, 360, '#ffffff50'); tri(cv, cx + 5, cy, 46, '#ffffff'); }
             if (mid) {
                 if (model.state === 'paused') { cv.circle(cx, cy - 40, 46, '#000000a0'); tri(cv, cx + 4, cy - 40, 36, '#ffffff'); }
@@ -710,7 +711,7 @@ mgu.run({
             cv.fillRect(0, 0, SW, SH, C.bg);
             const x0 = LX + 46, top = 40, ch = model.channel || (model.item(model.id) || {}).channel;
             cv.text('RideTube', x0, top + 30, 34, '#ffffff', LITB);
-            const chip = 'Podcast mode · driving', cw = cv.textWidth(chip, 22, LIT) + 40;
+            const chip = 'Chỉ âm thanh · xe đang chạy', cw = cv.textWidth(chip, 22, LIT) + 40;
             cv.roundRect(x0 + 170, top, cw, 40, 20, C.ph);
             cv.text(chip, x0 + 170 + cw / 2, top + 28, 22, C.dim, { literal: true, align: 'center' });
             cv.text('Hình ảnh trở lại khi xe dừng', SW - 60, top + 28, 22, '#717171', { literal: true, align: 'right' });
@@ -767,13 +768,13 @@ mgu.run({
                 big('ov:next', nx, 58, false, () => { const r = queue.shift(); play(r.id, r); }, (c) => {
                     cv.quad([[nx - 22, cy - 26], [nx - 22, cy + 26], [nx + 12, cy], [nx - 22, cy - 26]], c); cv.fillRect(nx + 14, cy - 26, 9, 52, c);
                 });
-                const up = 'Up next  ·  ' + String(queue[0].title || queue[0].id), uw = Math.min(700, cv.textWidth(up, 26, LIT) + 50);
+                const up = 'Tiếp theo  ·  ' + String(queue[0].title || queue[0].id), uw = Math.min(700, cv.textWidth(up, 26, LIT) + 50);
                 cv.roundRect(SW - 60 - uw, SH - 96, uw, 64, 16, '#1c1c1c');
                 cv.text(fit(cv, up, 26, uw - 50, LIT), SW - 60 - uw + 25, SH - 54, 26, '#dddddd', LIT);
             }
             const ask = askSeg();
             if (ask) {
-                const tt = 'Skip ' + sbName(ask[2]), w2 = cv.textWidth(tt, 30, LITB) + 80, f = focusKey === 'ov:sbskip';
+                const tt = 'Bỏ qua ' + sbName(ask[2]), w2 = cv.textWidth(tt, 30, LITB) + 80, f = focusKey === 'ov:sbskip';
                 cv.roundRect(x0, SH - 100, w2, 72, 36, f ? '#3ea6ff' : '#ffffff');
                 cv.text(tt, x0 + 40, SH - 52, 30, f ? '#ffffff' : C.bg, LITB);
                 tg(x0, SH - 100, w2, 72, run(sbJump(ask)), 'ov:sbskip', 36);
@@ -782,7 +783,7 @@ mgu.run({
                 cv.roundRect(x0, SH - 96, w2, 64, 32, wn ? '#4a3a10' : '#1f3d1f');
                 cv.text(tt, x0 + 30, SH - 54, 26, wn ? '#ffd27a' : '#7ee07e', LIT);
             }
-            if (model.state === 'error') cv.text(fit(cv, 'Error: ' + (model.error || 'playback stopped'), 28, bw, LIT), x0, SH - 54, 28, '#ff6b6b', LIT);
+            if (model.state === 'error') cv.text(fit(cv, 'Lỗi: ' + (VI.error(model.error) || 'đã dừng phát'), 28, bw, LIT), x0, SH - 54, 28, '#ff6b6b', LIT);
         }
         function drawFull(cv) {
             const pl = cv.place, s = pl.scale, SW = pl.w / s, SH = pl.h / s, dx = pl.ox / s, dy = pl.oy / s;
@@ -818,7 +819,7 @@ mgu.run({
                 ctl('ov:qr', px, by, 30, () => { qrUntil = qrUntil > Date.now() ? 0 : Date.now() + 30000; }, (c) => {
                     cv.strokeRoundRect(px - 10, by - 17, 20, 34, 4, 3, c); cv.fillRect(px - 4, by + 10, 8, 3, c);
                 });
-                cv.text('On phone', px - 42, by + 9, 24, '#ffffff', Object.assign({}, LIT, { align: 'right' }));
+                cv.text('Điện thoại', px - 42, by + 9, 24, '#ffffff', Object.assign({}, LIT, { align: 'right' }));
             }
             if (model.id && qrUntil > Date.now()) {
                 const url = 'https://youtu.be/' + model.id + (model.elapsed > 5000 ? '?t=' + Math.floor(model.elapsed / 1000) : ''), mod = 8;
@@ -826,8 +827,8 @@ mgu.run({
                 cv.roundRect(qx0, qy0, cw, chh, 24, '#212121f2');
                 cv.roundRect(qx0 + 30 - 6, qy0 + 30 - 6, side + 12, side + 12, 18, '#ffffff');
                 QR.draw(cv, url, qx0 + 30, qy0 + 30, mod);
-                cv.text('Continue on your phone', qx0 + side + 80, qy0 + chh / 2 - 20, 34, '#ffffff', LITB);
-                cv.text('Scan with the camera to go on from ' + clock(model.elapsed), qx0 + side + 80, qy0 + chh / 2 + 24, 22, '#cccccc', LIT);
+                cv.text('Xem tiếp trên điện thoại', qx0 + side + 80, qy0 + chh / 2 - 20, 34, '#ffffff', LITB);
+                cv.text('Quét mã để xem tiếp từ ' + clock(model.elapsed), qx0 + side + 80, qy0 + chh / 2 + 24, 22, '#cccccc', LIT);
                 tg(qx0, qy0, cw, chh, () => { qrUntil = 0; wake(); }, 'ov:qrcard', 24);
                 cv.xf();
                 return;
@@ -835,15 +836,15 @@ mgu.run({
             // middle: -10 s, play / pause, +10 s; preparing: the ring with the percentage
             let mid = null;
             if (!model.connected) mid = OFF;
-            else if (model.state === 'error') mid = 'Error: ' + (model.error || 'playback stopped');
+            else if (model.state === 'error') mid = 'Lỗi: ' + (VI.error(model.error) || 'đã dừng phát');
             const up = upNext;
             if (up) {
-                mid = 'Up next in ' + Math.max(1, Math.ceil((nextAt - Date.now()) / 1000)) + ' s: ' + String(up.title || up.id);
+                mid = 'Phát tiếp sau ' + Math.max(1, Math.ceil((nextAt - Date.now()) / 1000)) + ' giây: ' + String(up.title || up.id);
                 ctl('ov:play', cx, cy, 58, () => { nextAt = 1; }, (c) => tri(cv, cx + 5, cy, 46, c));
-            } else if (!act && model.state !== 'error') mid = model.state === 'ended' ? 'Finished' : 'Pick a video on Home or Search';
-            else if (noVideo()) mid = 'Video stops while driving - the sound plays on';
-            else if (!gpu()) mid = 'The picture needs the GPU renderer (mgu-render) - the sound plays';
-            else if (live && !videoShown) mid = 'Starting the picture...';
+            } else if (!act && model.state !== 'error') mid = model.state === 'ended' ? 'Đã phát xong' : 'Chọn video trong Trang chủ hoặc Tìm kiếm';
+            else if (noVideo()) mid = 'Xe đang chạy — chỉ phát âm thanh';
+            else if (!gpu()) mid = 'Cần mgu-render để hiện hình — âm thanh vẫn phát';
+            else if (live && !videoShown) mid = 'Đang mở hình ảnh…';
             if (model.state === 'preparing') {
                 const p = Math.max(0, Math.min(100, model.pct || 0));
                 cv.circle(cx, cy, 56, '#00000099');
@@ -866,16 +867,16 @@ mgu.run({
                 // right: Video quality (a press takes the next one; the video starts again there) and zoom (fill crops)
                 const qv = String(settings.get('quality') || 'auto'), fl = settings.get('fill') !== false, qx = SW - 330, zx = SW - 150;
                 ctl('ov:q', qx, cy, 42, () => { const q = QUALITIES[(QUALITIES.indexOf(qv) + 1) % QUALITIES.length]; settings.set('quality', q); model.quality(q); },
-                    (c) => cv.text(qv === 'auto' ? 'Auto' : qv + 'p', qx, cy + 8, 22, c, { literal: true, font: 'bold', align: 'center' }));
-                cv.text('Quality', qx, cy + 76, 22, '#dddddd', { literal: true, align: 'center' });
+                    (c) => cv.text(qv === 'auto' ? 'Tự động' : qv + 'p', qx, cy + 8, 22, c, { literal: true, font: 'bold', align: 'center' }));
+                cv.text('Chất lượng', qx, cy + 76, 22, '#dddddd', { literal: true, align: 'center' });
                 ctl('ov:zoom', zx, cy, 42, () => { settings.set('fill', !fl); model.fill(!fl); }, (c) => {
                     cv.strokeRoundRect(zx - 22, cy - 15, 44, 30, 4, 3, c);
                     if (fl) cv.fillRect(zx - 22, cy - 15, 44, 30, c); else cv.fillRect(zx - 12, cy - 15, 24, 30, c);
                 });
-                cv.text(fl ? 'Unzoom' : 'Zoom', zx, cy + 76, 22, '#dddddd', { literal: true, align: 'center' });
+                cv.text(fl ? 'Vừa khung' : 'Lấp đầy', zx, cy + 76, 22, '#dddddd', { literal: true, align: 'center' });
             } else if (model.state === 'error' && model.id && model.connected) {
                 ctl('ov:play', cx, cy, 58, again, (c) => retryGlyph(cv, cx, cy, 26, c));
-                cv.text('Try again', cx, cy + 100, 26, '#dddddd', { literal: true, align: 'center' });
+                cv.text('Thử lại', cx, cy + 100, 26, '#dddddd', { literal: true, align: 'center' });
             }
             if (mid) cv.text(fit(cv, mid, 30, SW - 2 * LX, LIT), cx, model.state === 'preparing' || live || up || (model.state === 'error' && model.id) ? cy + 150 : cy + 10, 30, '#ffffff', { literal: true, align: 'center' });
             // bottom: the progress bar (the track, the part played, the scrubber) and the times
@@ -901,7 +902,7 @@ mgu.run({
             }
             const ask = live && askSeg();
             if (ask) {
-                const tt = 'Skip ' + sbName(ask[2]), w2 = cv.textWidth(tt, 28, LITB) + 70, sx = SW - 60 - w2, sy = SH - 168, f = focusKey === 'ov:sbskip';
+                const tt = 'Bỏ qua ' + sbName(ask[2]), w2 = cv.textWidth(tt, 28, LITB) + 70, sx = SW - 60 - w2, sy = SH - 168, f = focusKey === 'ov:sbskip';
                 cv.roundRect(sx, sy, w2, 60, 30, f ? '#ffffff' : '#3a3a3ae6');
                 cv.text(tt, sx + 35, sy + 40, 28, f ? '#0f0f0f' : '#ffffff', LITB);
                 tg(sx, sy, w2, 60, run(sbJump(ask)), 'ov:sbskip', 30);

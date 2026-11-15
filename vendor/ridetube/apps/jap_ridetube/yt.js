@@ -192,8 +192,8 @@ class Model {
         } else if (m.ev === 'retry') {
             if (m.id === this.id) this.retry = Number(m.n) || 1;   // the fetch failed (the network): the daemon tries again
         } else if (m.ev === 'skipped') {
-            const names = { sponsor: 'sponsor', selfpromo: 'self-promotion', interaction: 'like & subscribe reminder', intro: 'intro' };
-            this.toast = { text: 'Skipped ' + (names[m.category] || 'segment') + ' · ' + clock(m.ms), until: Date.now() + 4000 };
+            const names = { sponsor: 'tài trợ', selfpromo: 'tự quảng bá', interaction: 'lời nhắc thích và đăng ký', intro: 'mở đầu' };
+            this.toast = { text: 'Đã bỏ qua ' + (names[m.category] || 'phân đoạn') + ' · ' + clock(m.ms), until: Date.now() + 4000 };
         } else if (m.ev === 'time') {
             if (typeof m.elapsed === 'number') this.elapsed = m.elapsed;
             if (typeof m.total === 'number') this.total = m.total;
@@ -240,7 +240,7 @@ class Model {
     /** a search with no answer after ms: an error, never a screen waiting for ever */
     checkSearch(now, ms) {
         if (!this.searching || now - this.searchT < ms) return false;
-        this.searching = false; this.searchError = 'No answer from the RideTube service';
+        this.searching = false; this.searchError = 'Dịch vụ phát video không phản hồi';
         this._changed();
         return true;
     }
@@ -250,7 +250,7 @@ class Model {
         this.q = q; this.searching = true; this.searchError = null; this.searchT = Date.now();
         this._changed();
         if (this.send({ cmd: 'search', q })) return true;
-        this.searching = false; this.searchError = 'The RideTube service (jap-ridetube-d) is not running';
+        this.searching = false; this.searchError = 'Dịch vụ phát video chưa chạy (jap-ridetube-d)';
         return false;
     }
     /** it: the tile tapped ({title, channel}), else the lists' item: shown until the daemon says its own title */
@@ -294,14 +294,14 @@ class Model {
         f.loading = true; f.error = null; f.t = Date.now();
         this._changed();
         if (this.send({ cmd: 'feed', which })) return true;
-        f.loading = false; f.error = 'The RideTube service (jap-ridetube-d) is not running';
+        f.loading = false; f.error = 'Dịch vụ phát video chưa chạy (jap-ridetube-d)';
         return false;
     }
     /** a feed with no answer after ms: an error, as for searches */
     checkFeeds(now, ms) {
         let any = false;
         FEEDS.map((w) => this.feeds[w]).concat([this.chans, this.chan])
-            .forEach((f) => { if (f && f.loading && now - f.t >= ms) { f.loading = false; f.error = 'No answer from the RideTube service'; any = true; } });
+            .forEach((f) => { if (f && f.loading && now - f.t >= ms) { f.loading = false; f.error = 'Dịch vụ phát video không phản hồi'; any = true; } });
         if (any) this._changed();
         return any;
     }
@@ -317,7 +317,7 @@ class Model {
         c.loading = true; c.error = null; c.t = Date.now();
         this._changed();
         if (this.send({ cmd: 'channels' })) return true;
-        c.loading = false; c.error = 'The RideTube service (jap-ridetube-d) is not running';
+        c.loading = false; c.error = 'Dịch vụ phát video chưa chạy (jap-ridetube-d)';
         return false;
     }
     /** the channels whose name starts with q (one letter or digit), else holds q (also the @handle); case and accents aside */
@@ -336,7 +336,7 @@ class Model {
         c.loading = true; c.error = null; c.t = Date.now();
         this._changed();
         if (this.send({ cmd: 'channel', id })) return true;
-        c.loading = false; c.error = 'The RideTube service (jap-ridetube-d) is not running';
+        c.loading = false; c.error = 'Dịch vụ phát video chưa chạy (jap-ridetube-d)';
         return false;
     }
     /** video wanted (player on screen and the car parked): tells the daemon when that changes */

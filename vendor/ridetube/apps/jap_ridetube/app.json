@@ -1,8 +1,8 @@
 {
   "id": "jap_ridetube",
-  "title": "YouTube khi đỗ xe",
-  "description": "Ứng dụng YouTube không chính thức cho BMW iDrive 7. Tìm video, xem kênh và phát âm thanh qua xe. Hình ảnh chỉ hiện khi xe đứng yên và có tín hiệu tốc độ hợp lệ.",
-  "version": "0.3.9",
+  "title": "YouTube • Tiếng Việt",
+  "description": "RideTube Việt hóa: tìm kiếm, đăng nhập, kênh đăng ký, xem sau, phát tiếp và SponsorBlock. Font Noto Sans đầy đủ dấu tiếng Việt. Chỉ hiện video khi xe đứng yên.",
+  "version": "0.3.10",
   "license": "GPL-3.0-or-later",
   "vendor": "custom",
   "loggingId": "OAA6",
@@ -124,7 +124,7 @@
         [
           "text",
           "MAIN_SB",
-          "Skip data: SponsorBlock (sponsor.ajay.app), CC BY-NC-SA 4.0"
+          "Dữ liệu bỏ qua: SponsorBlock (sponsor.ajay.app), CC BY-NC-SA 4.0"
         ]
       ]
     }
@@ -132,20 +132,20 @@
   "settings": [
     {
       "key": "fill",
-      "label": "Fill the screen (crops the video; off: black side bars)",
+      "label": "Lấp đầy màn hình (cắt viền hình; tắt để giữ đủ khung)",
       "type": "bool",
       "default": false,
       "reset": 2
     },
     {
       "key": "quality",
-      "label": "Video quality",
+      "label": "Chất lượng video",
       "type": "choice",
       "default": "auto",
       "options": [
         [
           "auto",
-          "Auto (720p on Wi-Fi, 480p on phone data)"
+          "Tự động (Wi-Fi: 720p; mạng di động: 480p)"
         ],
         [
           "720",
@@ -153,143 +153,143 @@
         ],
         [
           "480",
-          "480p (less data)"
+          "480p (tiết kiệm dữ liệu)"
         ],
         [
           "360",
-          "360p (least data)"
+          "360p (ít dữ liệu nhất)"
         ]
       ]
     },
     {
       "key": "members",
-      "label": "Show members-only videos",
+      "label": "Hiện video dành cho hội viên",
       "type": "bool",
       "default": false
     },
     {
       "key": "sb_sponsor",
-      "label": "SponsorBlock: Sponsors",
+      "label": "SponsorBlock: quảng cáo tài trợ",
       "type": "choice",
       "default": "skip",
       "options": [
         [
           "skip",
-          "Skip"
+          "Bỏ qua"
         ],
         [
           "ask",
-          "Show a Skip button"
+          "Hiện nút Bỏ qua"
         ],
         [
           "off",
-          "Off"
+          "Tắt"
         ]
       ]
     },
     {
       "key": "sb_selfpromo",
-      "label": "SponsorBlock: Self-promotion",
+      "label": "SponsorBlock: tự quảng bá",
       "type": "choice",
       "default": "skip",
       "options": [
         [
           "skip",
-          "Skip"
+          "Bỏ qua"
         ],
         [
           "ask",
-          "Show a Skip button"
+          "Hiện nút Bỏ qua"
         ],
         [
           "off",
-          "Off"
+          "Tắt"
         ]
       ]
     },
     {
       "key": "sb_interaction",
-      "label": "SponsorBlock: Like & subscribe reminders",
+      "label": "SponsorBlock: lời nhắc thích và đăng ký",
       "type": "choice",
       "default": "skip",
       "options": [
         [
           "skip",
-          "Skip"
+          "Bỏ qua"
         ],
         [
           "ask",
-          "Show a Skip button"
+          "Hiện nút Bỏ qua"
         ],
         [
           "off",
-          "Off"
+          "Tắt"
         ]
       ]
     },
     {
       "key": "sb_intro",
-      "label": "SponsorBlock: Intros",
+      "label": "SponsorBlock: phần mở đầu",
       "type": "choice",
       "default": "skip",
       "options": [
         [
           "skip",
-          "Skip"
+          "Bỏ qua"
         ],
         [
           "ask",
-          "Show a Skip button"
+          "Hiện nút Bỏ qua"
         ],
         [
           "off",
-          "Off"
+          "Tắt"
         ]
       ]
     },
     {
       "key": "sb_outro",
-      "label": "SponsorBlock: End cards and credits",
+      "label": "SponsorBlock: phần kết và danh đề",
       "type": "choice",
       "default": "ask",
       "options": [
         [
           "skip",
-          "Skip"
+          "Bỏ qua"
         ],
         [
           "ask",
-          "Show a Skip button"
+          "Hiện nút Bỏ qua"
         ],
         [
           "off",
-          "Off"
+          "Tắt"
         ]
       ]
     },
     {
       "key": "sb_music_offtopic",
-      "label": "SponsorBlock: Non-music parts of music videos",
+      "label": "SponsorBlock: đoạn ngoài bài hát",
       "type": "choice",
       "default": "off",
       "options": [
         [
           "skip",
-          "Skip"
+          "Bỏ qua"
         ],
         [
           "ask",
-          "Show a Skip button"
+          "Hiện nút Bỏ qua"
         ],
         [
           "off",
-          "Off"
+          "Tắt"
         ]
       ]
     },
     {
       "key": "battery",
-      "label": "Parked: pause when the 12 V battery is under",
+      "label": "Khi đỗ xe: tạm dừng nếu ắc quy 12 V dưới",
       "type": "choice",
       "default": "65",
       "options": [
@@ -307,7 +307,7 @@
         ],
         [
           "0",
-          "Never"
+          "Không bao giờ"
         ]
       ]
     }
