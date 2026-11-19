@@ -651,6 +651,21 @@ fs.mkdirSync(out); fs.writeFileSync(out + '/' + i.replace(/\\./g, '_') + '.json'
     const three = fs.readFileSync(path.join(run3, 'probe.log'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l.replace(/^\S+ /, '')));
     assert(three.some((l) => l.ev === 'proxy' && l.ok === false && /TypeError: Cannot read property x/.test(l.note)), 'the generator\'s own error line');
     assert(three.some((l) => l.ev === 'proxy' && l.ok === true && l.members[0] === 'displaySpeedLimit'), 'the good member alone');
+    // fields without a getter (BMW's generator refuses to read them): subscribed only, never read
+    const run4 = path.join(T, 'run4'), gen4 = path.join(T, 'gen4.js');
+    fs.mkdirSync(run4);
+    fs.writeFileSync(gen4, "const fs = require('fs'); const a = process.argv.slice(2); const m = JSON.parse(fs.readFileSync(a[1], 'utf8')); const i = Object.keys(m.proxies)[0];"
+        + "if (Object.keys(m.proxies[i].attributes).some((k) => m.proxies[i].attributes[k] !== 's')) { console.error('Error: IFConfigGenerator::generate() Failed due to Error: Requested read for displaySpeedLimit but no getter available'); process.exit(1); }"
+        + "fs.mkdirSync(a[3]); fs.writeFileSync(a[3] + '/' + i.split('.').join('_') + '.json', JSON.stringify({ name: i }));");
+    let reads = 0;
+    const subIp = { buildProxy: () => Promise.resolve({ init: () => Promise.resolve(), subscribeToAvailability: () => {}, getValue: () => { reads++; return Promise.resolve(1); },
+        subscribe: (o) => { if (o.name === 'displaySpeedLimit') setTimeout(() => o.onReceive({ displaySpeedLimit: 60 }), 20); return Promise.resolve(); } }) };
+    assert.strictEqual(await probe.run(path.join(run4, 'probe.log'), path.join(T, 'probe-tmp4'), { catalog: cat3, gen: gen4, someip: subIp }), 1);
+    await sleep(1200);
+    const four = fs.readFileSync(path.join(run4, 'probe.log'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l.replace(/^\S+ /, '')));
+    assert(four.some((l) => l.ev === 'proxy' && l.ok === true && l.mode === 'subscribe only'), JSON.stringify(four));
+    assert(four.some((l) => l.ev === 'value' && l.value === '{"displaySpeedLimit":60}'));
+    assert.strictEqual(reads, 0, 'no read of a field without a getter');
     // the Store's log tool prints it
     const printed = require('child_process').execFileSync(process.execPath, [path.join(__dirname, '..', 'vietmap-signs-log', 'print-log.js')],
         { env: Object.assign({}, process.env, { VMS_RUN: T }), encoding: 'utf8' });

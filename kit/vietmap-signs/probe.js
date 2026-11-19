@@ -25,7 +25,7 @@ const MAX_LOG = 400 * 1024;
 
 const NAME = /speed.?limit|limit.?speed|traffic.?sign|road.?sign|sign.?recogn|speed.?info|legal.?speed|max(imum)?.?speed|e.?horizon|horizon|adas|road.?attr|road.?class|road.?type|map.?match|current.?(road|street|segment)|no.?passing|overtak|speed.?warn|speed.?camera/i;
 const WIDE = /navigation|\.map|sign|limit|horizon|adas|kombi|cluster|assist|environment|position/i;
-const MAX_IFACES = 30, MAX_FIELDS = 14, MAX_BROADCASTS = 8;
+const MAX_IFACES = 30, MAX_FIELDS = 40, MAX_BROADCASTS = 12;
 
 /** What to open: [{ name, fields, broadcasts, why }], the interfaces named for it first; and the wider list of names. */
 function candidates(db) {
@@ -92,13 +92,16 @@ function run(logFile, tmp, o) {
         const lines = text.split('\n').filter((l) => /Error|not found|unknown|undefined|cannot/i.test(l) && l.length < 300);
         return cut(lines.slice(-3).join(' | ') || text.slice(-300) || e.message, 400);
     };
-    const one = (x, single) => {
+    // mode 'rs': fields read and subscribed; 's': subscribed only (BMW's generator refuses a read of a field
+    // without a getter, as on a G30: TrafficSignDisplayControl, navigation.ADAS)
+    const one = (x, single, mode) => {
+        mode = mode || 'rs';
         const dir = path.join(tmp, String(n++));
         let cfg;
         try {
             fs.mkdirSync(dir);
             const entry = { instances: '*' };
-            if (x.fields.length) { entry.attributes = {}; x.fields.forEach((f) => { entry.attributes[f] = 'rs'; }); }
+            if (x.fields.length) { entry.attributes = {}; x.fields.forEach((f) => { entry.attributes[f] = mode; }); }
             if (x.broadcasts.length) entry.broadcasts = x.broadcasts;
             const proxies = {};
             proxies[x.name] = entry;
@@ -106,12 +109,14 @@ function run(logFile, tmp, o) {
             cp.execFileSync(process.execPath, [o.gen || GEN, o.catalog || CATALOG, path.join(dir, 'manifest.json'), '0', path.join(dir, 'out')], { stdio: ['ignore', 'pipe', 'pipe'], timeout: 30000 });
             cfg = JSON.parse(fs.readFileSync(path.join(dir, 'out', x.name.replace(/\./g, '_') + '.json'), 'utf8'));
         } catch (e) {
-            say({ ev: 'proxy', iface: x.name, ok: false, members: x.fields.concat(x.broadcasts), note: 'description: ' + genError(e) });
+            const why = genError(e);
+            if (mode === 'rs' && /no getter/i.test(why)) return one(x, single, 's');
+            say({ ev: 'proxy', iface: x.name, ok: false, members: x.fields.concat(x.broadcasts), note: 'description: ' + why });
             // one member the generator cannot describe spoils the lot: each alone then
             const parts = x.fields.map((f) => ({ name: x.name, fields: [f], broadcasts: [] })).concat(x.broadcasts.map((b) => ({ name: x.name, fields: [], broadcasts: [b] })));
             if (single || parts.length < 2) return Promise.resolve();
             let each = Promise.resolve();
-            parts.forEach((p) => { each = each.then(() => one(p, true)); });
+            parts.forEach((p) => { each = each.then(() => one(p, true, mode)); });
             return each;
         }
         const allInsts = Object.keys(cfg.instances || { 1: 1 }), insts = allInsts.slice(0, 6);
@@ -121,12 +126,12 @@ function run(logFile, tmp, o) {
             chain = chain.then(() => within(someip.buildProxy(cfg, String(inst)).then((p) => p.init().then(() => p)), 6000, 'proxy')).then((p) => {
                 held.push(p);
                 up++;
-                say(Object.assign({ ev: 'proxy', iface: x.name, inst, ok: true }, single ? { members: x.fields.concat(x.broadcasts) } : {}));
+                say(Object.assign({ ev: 'proxy', iface: x.name, inst, ok: true }, single ? { members: x.fields.concat(x.broadcasts) } : {}, mode === 's' ? { mode: 'subscribe only' } : {}));
                 try { p.subscribeToAvailability((a) => say({ ev: 'available', iface: x.name, inst, up: !!a })); } catch (e) { /* older binding */ }
                 x.fields.concat(x.broadcasts).forEach((name, k) => {
                     const kind = k < x.fields.length ? 'field' : 'broadcast', on = got(x.name, name, kind, inst);
                     try { Promise.resolve(p.subscribe({ name, onReceive: on })).catch((e) => say({ ev: 'note', text: x.name + '.' + name + ' subscribe (instance ' + inst + '): ' + cut(e && e.message || e, 160) })); } catch (e) { say({ ev: 'note', text: x.name + '.' + name + ' subscribe (instance ' + inst + '): ' + cut(e.message, 160) }); }
-                    if (kind === 'field') {
+                    if (kind === 'field' && mode === 'rs') {
                         const get = () => { try { Promise.resolve(p.getValue(name, 3000)).then(on).catch(() => {}); } catch (e) { /* no getter */ } };
                         setTimeout(get, 800 + k * 50);
                         setInterval(get, 10000);
