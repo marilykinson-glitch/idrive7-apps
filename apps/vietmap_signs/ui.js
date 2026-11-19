@@ -154,7 +154,7 @@ function draw(cv, G, t, v, act) {
     // --- the sign ---
     const cx = 330, cy = G.TOP + 175, R = 118;
     sign(cv, cx, cy, R, v.limit || v.phoneLimit, t, G);
-    const cap = v.limit ? (v.source === 'camera' ? "BMW camera's sign" : v.source === 'phone' ? 'From VietMap' : 'On the cluster now')
+    const cap = v.limit ? (v.source === 'camera' ? "BMW camera's sign" : v.source === 'bmwmap' ? "BMW map's sign" : v.source === 'phone' ? 'From VietMap' : 'On the cluster now')
         : v.phoneLimit ? 'From the phone, not shown' : 'No sign from the phone';
     cv.text(cap, cx, cy + R + 40, 18, t.dim, { align: 'center', font: 'label' });
     // where BMW's own sign comes from: each source's word, small
@@ -165,7 +165,7 @@ function draw(cv, G, t, v, act) {
     cv.text(on ? 'ON' : 'OFF', rx, G.TOP + 100, 64, on ? go : t.text, { font: 'bold', spacing: 2 });
     const showLabel = ((v.shows || []).filter((o) => o[0] === v.show)[0] || [null, ''])[1];
     cv.text(showLabel, rx, G.TOP + 140, 24, t.text, { font: 'label' });
-    (v.lines || []).slice(0, 7).forEach((l, i) => {
+    (v.lines || []).slice(0, 8).forEach((l, i) => {
         const cl = l.kind === 'warn' ? (t.warn || '#d29922') : l.kind === 'go' ? go : t.dim;
         cv.text(l.text, rx, G.TOP + 182 + i * 26, 18, cl, { font: 'label' });
     });

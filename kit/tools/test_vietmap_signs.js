@@ -128,7 +128,7 @@ function sendNoAnswer(msg) {
 
     // --- settings: the defaults without the app, then the app's ---
     let d = vms.desired(Date.now());
-    assert.deepStrictEqual(d, { app: null, on: true, show: 'both', side: 'right', hudSide: 'left', size: 'medium', bmw: 'hide', screen: true, camera: true, probe: false, warn: 5, mapPos: null, hudPos: null });
+    assert.deepStrictEqual(d, { app: null, on: true, show: 'both', side: 'right', hudSide: 'left', size: 'medium', bmw: 'hide', screen: true, camera: true, probe: false, bmwMap: false, warn: 5, mapPos: null, hudPos: null });
     vms._reset();
     const app = installApp(12301, 'vietmap_signs2');
     assert.strictEqual(vms.desired(Date.now()).app, 'vietmap_signs2');
@@ -595,6 +595,53 @@ fs.mkdirSync(out); fs.writeFileSync(out + '/' + i.replace(/\\./g, '_') + '.json'
     C.speed = null; C.speedAt = 0;
     assert.strictEqual(vms.carSpeed(Date.now()), null);
     fs.unlinkSync(path.join(ramDir, 'speed.json'));
+
+    // --- BMW's map limit (dass.TrafficSignRecognition): the class the car sends, as seen on a G30 ---
+    const TSR = (cls, unit) => ({ presentWithdrawalLimitSpeed: 1, presentClassLimitSpeed: cls, nextClassLimitSpeed: 254, unitOfMeasurementSpeedLimit: unit || 0, statusDataMatchingCameraADAS: 6, statusStreetTyp: 3 });
+    assert.strictEqual(camera.mapPick(TSR(6)).limit, 30, 'class 6: 30 km/h (Tran Van Tra, with the cluster showing 30)');
+    assert.strictEqual(camera.mapPick(TSR(12)).limit, 60);
+    assert.strictEqual(camera.mapPick(TSR(254, 2)).limit, 0, '254: no sign');
+    assert.strictEqual(camera.mapPick(TSR(31)).limit, 0, 'a class not known: none, never a guess');
+    assert.strictEqual(camera.mapPick(TSR(6, 1)).limit, 0, 'another unit: none');
+    assert.strictEqual(camera.mapPick({}), null);
+    const ms = camera.createState(), m0 = Date.now();
+    camera.onMap(ms, TSR(6), m0, () => {});
+    assert.strictEqual(camera.mapCurrent(ms, m0 + 60000), 30, 'values at a change only: held');
+    ms.up.map = false;
+    assert.strictEqual(camera.mapCurrent(ms, m0 + 1000), 0, 'the service gone: none');
+    ms.up.map = true;
+    // a turn onto another road: the new class at once
+    camera.onMap(ms, TSR(10), m0 + 70000, () => {});
+    assert.strictEqual(camera.mapCurrent(ms, m0 + 70001), 50);
+    camera.onMap(ms, TSR(254, 2), m0 + 80000, () => {});
+    assert.strictEqual(camera.mapCurrent(ms, m0 + 80001), 0, 'off the road: no sign');
+    // driven 1 km without a word (values at a change only): dropped
+    camera.onMap(ms, TSR(12), m0 + 90000, () => {});
+    for (let k = 0; k <= 70; k++) camera.onSpeed(ms, { speedVehicleCentreOfGravity: 3840 }, m0 + 90000 + k * 1000);       // 60 km/h for 70 s
+    assert.strictEqual(camera.mapCurrent(ms, m0 + 161000), 0, 'more than 1 km without a word');
+    // values by the clock (learnt): 10 s without one is stale
+    const mp = camera.createState();
+    for (let k = 0; k < 8; k++) camera.onMap(mp, TSR(8), m0 + k * 1000, () => {});
+    assert.strictEqual(mp.map.periodic, true);
+    assert.strictEqual(camera.mapCurrent(mp, m0 + 9000), 40);
+    assert.strictEqual(camera.mapCurrent(mp, m0 + 20000), 0, 'they stopped: not kept as new');
+    // in the helper: after the camera and the phone, only when the app asks for it
+    C.limit = 0; C.speed = null; C.speedAt = 0;
+    camera.onMap(C, TSR(6), Date.now(), () => {});
+    app.settings({ camera: 'on' });
+    await sleep(700);
+    w = vms.tick();
+    assert.notStrictEqual(w.source, 'bmwmap', 'off by default');
+    app.settings({ bmwmap: 'on' });
+    w = vms.tick();
+    assert.deepStrictEqual([w.limit, w.source], [30, 'bmwmap'], 'the map\'s 30 with nothing else');
+    assert.deepStrictEqual([status().bmwmap.cls, status().bmwmap.limit], [6, 30]);
+    a = await send({ t: 'vms', v: 1, seq: 90, limit: 50 });
+    w = vms.tick();
+    assert.deepStrictEqual([w.limit, w.source], [50, 'phone'], 'VietMap\'s comes first');
+    await sleep(700);
+    app.settings({});
+    C.map.limit = 0; C.map.cls = null;
 
     // --- the probe for BMW's map speed limit: what it picks from a catalogue, what it logs ---
     const probe = require('../vietmap-signs/probe');

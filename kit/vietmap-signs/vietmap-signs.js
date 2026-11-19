@@ -53,7 +53,7 @@ const cp = require('child_process');
 const dgram = require('dgram');
 const zlib = require('zlib');
 
-const VERSION = '0.6.6';
+const VERSION = '0.7.0';
 const env = (k, d) => (process.env[k] !== undefined && process.env[k] !== '' ? process.env[k] : d);
 const CFG = {
     oap: env('VMS_OAP', '/var/opt/public/oap'),
@@ -280,7 +280,7 @@ function findApp(now) {
     return null;
 }
 
-const DEFAULTS = { mode: 'on', show: 'both', side: 'right', hudSide: 'left', size: 'medium', bmw: 'hide', screen: 'on', warn: '5', camera: 'on', probe: 'off' };
+const DEFAULTS = { mode: 'on', show: 'both', side: 'right', hudSide: 'left', size: 'medium', bmw: 'hide', screen: 'on', warn: '5', camera: 'on', probe: 'off', bmwmap: 'off' };
 const WARN = { off: null, '0': 0, '5': 5, '10': 10 };
 const POS_KEYS = ['mapX', 'mapY', 'hudX', 'hudY'];
 const PREVIEW_LIMIT = 60;
@@ -309,6 +309,8 @@ function desired(now) {
         camera: values.camera !== 'off',
         // look for BMW's map speed limit in the unit's interfaces and log what comes (probe.js)
         probe: values.probe === 'on',
+        // BMW's map limit (camera.js mapCurrent), after the camera's and the phone's
+        bmwMap: values.bmwmap === 'on',
         // warn above the sign by this much (km/h), or null: no warning
         warn: Object.prototype.hasOwnProperty.call(WARN, String(values.warn)) ? WARN[String(values.warn)] : 5,
         mapPos: pos('mapX', 'mapY'),
@@ -809,9 +811,10 @@ function decide(now) {
         && (fs.existsSync(CFG.grabber) || !path.isAbsolute(CFG.grabber));
     if (reading && !screen.running && now - screen.startedAt >= CFG.screenMs) shootScreen(now);
     const onScreen = reading ? screenSign(now) : 0;
+    const mapLimit = d.on && d.bmwMap ? camera.mapCurrent(cam, now) : 0;
     // while it is being placed, 60 without any
-    const source = camLimit ? 'camera' : fresh && phone.limit ? 'phone' : onScreen ? 'screen' : placing ? 'preview' : null;
-    const limit = camLimit || (fresh && phone.limit) || onScreen || (placing ? PREVIEW_LIMIT : null);
+    const source = camLimit ? 'camera' : fresh && phone.limit ? 'phone' : onScreen ? 'screen' : mapLimit ? 'bmwmap' : placing ? 'preview' : null;
+    const limit = camLimit || (fresh && phone.limit) || onScreen || mapLimit || (placing ? PREVIEW_LIMIT : null);
     const bmw = bmwSign(now);
     const bmwShows = !!(bmw && bmw.fresh && bmw.valid && bmw.limit > 0);
     const suppress = d.bmw === 'hide' && bmwShows;
@@ -849,7 +852,7 @@ function tick() {
     applyLayers({ limit: s.limit, map: s.map, hud: s.hud, warn: s.over });
     last = { shown: ['map', 'hud'].filter((t) => s[t].visible), why: s.why, limit: s.limit };
     const key = JSON.stringify([last, s.bmw, renderer, fw.error, s.d, s.placing, s.reading, s.over, s.woc.map, s.woc.hud, phone.from, phone.bad, phone.ignored,
-        screen.limit, screen.error, screen.shots, cam.limit, cam.signs, cam.ready, cam.error, cam.up, ownSpeed(now) !== null, pair.refused, appRun.dir, appRun.uid, appRun.by, pair.code, s.d.probe, !!probe.child]);
+        screen.limit, screen.error, screen.shots, cam.limit, cam.signs, cam.ready, cam.error, cam.up, ownSpeed(now) !== null, pair.refused, appRun.dir, appRun.uid, appRun.by, pair.code, s.d.probe, !!probe.child, cam.map.cls, cam.map.ready, cam.up.map, camera.mapCurrent(cam, now)]);
     if (key !== lastKey || now - lastWrite > 2000) { writeStatus(s, now); lastKey = key; lastWrite = now; }
     return s;
 }
@@ -879,6 +882,8 @@ function writeStatus(s, now) {
         camera: { on: s.d.camera, ready: cam.ready, error: cam.error, up: cam.up, limit: cam.limit,
             at: cam.at ? new Date(cam.at).toISOString() : null, km: Math.round(cam.km * 10) / 10, seen: cam.signs,
             events: cam.events, last_event: cam.lastEventAt ? new Date(cam.lastEventAt).toISOString() : null },
+        bmwmap: { on: s.d.bmwMap, ready: cam.map.ready, error: cam.map.error, up: cam.up.map, cls: cam.map.cls, limit: camera.mapCurrent(cam, now), read: cam.map.limit,
+            unit: cam.map.unit, match: cam.map.match, next: cam.map.next, ago_ms: cam.map.at ? now - cam.map.at : null, events: cam.map.events, periodic: cam.map.periodic },
         screen: { on: s.d.screen, reading: s.reading, limit: screen.limit, at: screen.at ? new Date(screen.at).toISOString() : null,
             shots: screen.shots, ms: screen.ms, decode_ms: screen.decodeMs, rings: screen.rings, error: screen.error,
             geometry: screen.geometry || 'full' },

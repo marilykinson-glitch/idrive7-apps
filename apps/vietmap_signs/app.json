@@ -2,7 +2,7 @@
   "id": "vietmap_signs",
   "title": "Biển báo VietMap",
   "description": "Hiện biển tốc độ từ camera trước BMW, hoặc từ VietMap Live, lên đồng hồ và HUD. Nhận biển từ màn giữa (CarPlay) hoặc từ app Trình hỗ trợ VietMap Live trên điện thoại qua Wi-Fi xe (ghép đôi bằng mã 6 số ở tab Ghép đôi). Chớp khi xe chạy nhanh hơn biển. Trợ thủ vietmap-signs tự cài kèm; cần có Waze on cluster và cluster-render.",
-  "version": "0.6.8",
+  "version": "0.7.0",
   "vendor": "custom",
   "loggingId": "OAA5",
   "iconGlyph": "flag",
@@ -139,6 +139,22 @@
         [
           "off",
           "Tắt: chỉ biển VietMap"
+        ]
+      ]
+    },
+    {
+      "key": "bmwmap",
+      "label": "Biển từ bản đồ BMW khi không có biển camera hay VietMap (thử nghiệm)",
+      "type": "choice",
+      "default": "off",
+      "options": [
+        [
+          "off",
+          "Tắt"
+        ],
+        [
+          "on",
+          "Bật"
         ]
       ]
     },

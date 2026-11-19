@@ -84,6 +84,13 @@ function report(s, want, bmw) {
                 : c.limit ? { text: 'BMW camera: sign ' + c.limit + (c.seen ? ' · seen ' + c.seen : ''), kind: 'go' }
                     : { text: 'BMW camera: no speed sign now', kind: 'dim' });
     }
+    const bm = s.bmwmap;
+    if (bm && bm.on) {
+        lines.push(bm.error ? { text: 'BMW map: ' + bm.error, kind: 'warn' }
+            : !bm.ready ? { text: 'BMW map: starting', kind: 'dim' }
+                : bm.limit ? { text: 'BMW map: sign ' + bm.limit + ' · code ' + bm.cls, kind: 'go' }
+                    : { text: 'BMW map: no sign' + (bm.cls !== null && bm.cls !== undefined ? ' · code ' + bm.cls : ''), kind: 'dim' });
+    }
     if (bmw && bmw.available === false) lines.push({ text: 'BMW sign: no signal', kind: 'dim' });
     else if (bmw && bmw.valid) lines.push({ text: 'BMW sign: ' + bmw.limit + ' km/h' + (bmw.source ? ' (' + bmw.source + ')' : ''), kind: 'dim' });
     else if (bmw) lines.push({ text: 'BMW sign: none', kind: 'dim' });

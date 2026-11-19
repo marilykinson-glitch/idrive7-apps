@@ -28,7 +28,51 @@ const DEFAULT_HOLD_KM = 0.5;
 const TARGETS = {
     camera: { iface: 'de.bmw.environmentalmodel.SignRecognitionFrontCamera', broadcasts: ['TrafficSignRecognitionFrontCamera'] },
     speed: { iface: 'de.bmw.infotainment.vehicle.Vehicle2', attributes: { statusCarSpeed2: 's' } },
+    // the limit the cluster itself shows: the camera unit's word after matching its camera with the head
+    // unit's map (found with probe.js on a G30; the map's own interfaces, CCP and TrafficSignDisplayControl,
+    // are not offered there, and navigation.ADAS can only be written to)
+    map: { iface: 'de.bmw.dass.TrafficSignRecognition', broadcasts: ['TrafficSignRecognition'] },
 };
+// presentClassLimitSpeed is a class, not km/h. Seen on a G30 with the cluster's sign beside it: 6 = 30;
+// 254 with no sign (and unitOfMeasurementSpeedLimit 2); 1 while creeping off the road (5, as inner roads are
+// mapped). Taken as class x 5 km/h for 1..30 (5..150) - one road confirmed so far, so the app's setting for
+// it is off by default and the class is shown beside the limit.
+const MAP_NONE = 254, MAP_MAX_CLASS = 30, MAP_HOLD_KM = 1, MAP_STALE_MS = 10000;
+
+/** What one TrafficSignRecognition value says: { cls, limit (km/h, 0: none), unit, match, next }. */
+function mapPick(v) {
+    if (!v || typeof v !== 'object') return null;
+    const cls = Number(v.presentClassLimitSpeed), unit = Number(v.unitOfMeasurementSpeedLimit);
+    if (!Number.isFinite(cls)) return null;
+    const kmh = Number.isInteger(cls) && cls >= 1 && cls <= MAP_MAX_CLASS && (!Number.isFinite(unit) || unit === 0) ? cls * 5 : 0;
+    return { cls, limit: kmh, unit: Number.isFinite(unit) ? unit : null, match: Number.isFinite(Number(v.statusDataMatchingCameraADAS)) ? Number(v.statusDataMatchingCameraADAS) : null,
+        next: Number.isFinite(Number(v.nextClassLimitSpeed)) ? Number(v.nextClassLimitSpeed) : null };
+}
+
+/** A value came: kept with when and how far the car had driven; whether they come by the clock is learnt. */
+function onMap(st, v, now, log) {
+    const p = mapPick(v);
+    if (!p) return;
+    const m = st.map;
+    if (m.at && now - m.at < 3000 && now > m.at) { if (++m.quick >= 5) m.periodic = true; } else m.quick = 0;
+    if (p.cls !== m.cls && log) log('map: class ' + p.cls + (p.limit ? ' = ' + p.limit + ' km/h' : p.cls === MAP_NONE ? ' (no sign)' : ' (not a limit known here)'));
+    m.cls = p.cls; m.limit = p.limit; m.unit = p.unit; m.match = p.match; m.next = p.next; m.at = now; m.odo = st.odo; m.events++;
+}
+
+/**
+ * The map's limit in force now, 0 for none. Never an old one kept as new: gone when the service is not
+ * there, when values that came by the clock stop for 10 s, and (values that come only at a change) once
+ * 1 km is driven or 15 min pass without a word.
+ */
+function mapCurrent(st, now) {
+    const m = st.map;
+    if (!m.limit || !m.at) return 0;
+    if (st.up.map === false) return 0;
+    if (now < m.at - 5000) return 0;
+    if (m.periodic) return now - m.at <= MAP_STALE_MS ? m.limit : 0;
+    if (st.odo - m.odo > MAP_HOLD_KM || now - m.at > st.holdMin * 60000) return 0;
+    return m.limit;
+}
 // a plate that says the sign is for another vehicle, or only sometimes / further on
 const NOT_FOR_US = /TRUCK|TRAILER|BUS|LORRY|HGV|WEIGHT|TONN|TRACTOR|HAZARD|DANGEROUS|RAIN|SNOW|FOG|WET|ICE|TIME|DISTANCE|EXIT|SCHOOL|WORK|NIGHT|DAY|ARROW/;
 const PLAIN = /^(SIGNAL_UNFILLED|NO_ADDITIONAL_RESTRICTION|GENERIC_SUPPLEMENTAL|NONE|NO_SUPPLEMENTAL.*)?$/;
@@ -68,7 +112,9 @@ function createState(opts) {
     return {
         holdKm: Number.isFinite(opts.holdKm) && opts.holdKm > 0 ? opts.holdKm : DEFAULT_HOLD_KM, holdMin: opts.holdMin || 15, confirmMs: opts.confirmMs || 8000,
         limit: 0, at: 0, km: 0, candidate: 0, candidateAt: 0, events: 0, signs: '', lastEventAt: 0,
-        speed: null, speedAt: 0, up: { camera: null, speed: null }, error: null, ready: false,
+        speed: null, speedAt: 0, up: { camera: null, speed: null, map: null }, error: null, ready: false,
+        odo: 0,         // km driven since the start (st.km starts again at each camera sign)
+        map: { cls: null, limit: 0, unit: null, match: null, next: null, at: 0, odo: 0, events: 0, quick: 0, periodic: false, error: null, ready: false },
     };
 }
 
@@ -96,7 +142,11 @@ function onSpeed(st, v, now) {
     const raw = v && v.speedVehicleCentreOfGravity;
     if (!Number.isFinite(raw) || raw === 65535) return;
     const kmh = raw * 0.015625;
-    if (st.speed !== null && now - st.speedAt < 2000 && now > st.speedAt) st.km += (st.speed + kmh) / 2 * (now - st.speedAt) / 3600000;
+    if (st.speed !== null && now - st.speedAt < 2000 && now > st.speedAt) {
+        const d = (st.speed + kmh) / 2 * (now - st.speedAt) / 3600000;
+        st.km += d;
+        st.odo += d;
+    }
     st.speed = Math.round(kmh * 10) / 10;
     st.speedAt = now;
 }
@@ -182,7 +232,22 @@ function start(st, o) {
             .catch((e) => { st.error = String(e && e.message || e).slice(0, 200); log('camera: ' + st.error + ' (again in 60 s)'); setTimeout(attempt, 60000); });
     };
     attempt();
+    // the map's limit: on its own, so a car without that service still has the camera and the speed
+    const mapAttempt = () => {
+        if (!binding) { setTimeout(mapAttempt, 5000); return; }
+        generate(o, 'map')
+            .then((cfg) => nativeTick(() => binding.buildProxy(cfg, '1').then((p) => p.init().then(() => p))))
+            .then((p) => {
+                held.push(p);
+                return nativeTick(() => {
+                    try { p.subscribeToAvailability((a) => { if (st.up.map !== !!a) log('map: ' + (a ? 'available' : 'not available')); st.up.map = !!a; }); } catch (e) { /* older binding */ }
+                }).then(() => nativeTick(() => p.subscribe({ name: 'TrafficSignRecognition', onReceive: (v) => { try { onMap(st, v, Date.now(), log); } catch (e) { log('map: ' + e.message); } } })));
+            })
+            .then(() => { st.map.ready = true; st.map.error = null; log('map: listening'); })
+            .catch((e) => { st.map.error = String(e && e.message || e).slice(0, 200); log('map: ' + st.map.error + ' (again in 60 s)'); setTimeout(mapAttempt, 60000); });
+    };
+    if (o.map !== false) mapAttempt();
     return held;
 }
 
-module.exports = { DEFAULT_HOLD_KM, pick, createState, onEvent, onSpeed, current, speed, start, TARGETS };
+module.exports = { mapPick, onMap, mapCurrent, MAP_NONE, DEFAULT_HOLD_KM, pick, createState, onEvent, onSpeed, current, speed, start, TARGETS };
