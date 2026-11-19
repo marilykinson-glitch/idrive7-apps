@@ -50,7 +50,7 @@
       "requires": {
         "idrive7-renderd": "2.1.7",
         "mgu-inputgate": "1.0.0",
-        "vietmap-signs": "0.6.3"
+        "vietmap-signs": "0.6.4"
       },
       "build": {
         "python": "kit/tools/build.py",

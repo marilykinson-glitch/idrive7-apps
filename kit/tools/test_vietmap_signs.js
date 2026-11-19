@@ -640,6 +640,17 @@ fs.mkdirSync(out); fs.writeFileSync(out + '/' + i.replace(/\\./g, '_') + '.json'
     const printed2 = require('child_process').execFileSync(process.execPath, [path.join(__dirname, '..', 'vietmap-signs-log', 'print-log.js')],
         { env: Object.assign({}, process.env, { VMS_RUN: plog2 }), encoding: 'utf8' });
     assert(/currentSpeedLimit @ instance 1/.test(printed2) && /currentSpeedLimit @ instance 2/.test(printed2), printed2);
+    // a member the generator cannot describe: the others of that interface still open, each alone
+    const cat3 = path.join(T, 'catalog3.json'), run3 = path.join(T, 'run3'), gen3 = path.join(T, 'gen3.js');
+    fs.mkdirSync(run3);
+    fs.writeFileSync(cat3, JSON.stringify({ interfaces: { 'de.bmw.dass.TrafficSignDisplayControl': { fields: { displaySpeedLimit: {}, displayBroken: {} } } } }));
+    fs.writeFileSync(gen3, "const fs = require('fs'); const a = process.argv.slice(2); const m = JSON.parse(fs.readFileSync(a[1], 'utf8')); const i = Object.keys(m.proxies)[0];"
+        + "if (m.proxies[i].attributes.displayBroken) { console.error('function page(){ /* source */ }'); console.error('TypeError: Cannot read property x of undefined'); process.exit(1); }"
+        + "fs.mkdirSync(a[3]); fs.writeFileSync(a[3] + '/' + i.split('.').join('_') + '.json', JSON.stringify({ name: i }));");
+    assert.strictEqual(await probe.run(path.join(run3, 'probe.log'), path.join(T, 'probe-tmp3'), { catalog: cat3, gen: gen3, someip: fakeIp }), 1);
+    const three = fs.readFileSync(path.join(run3, 'probe.log'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l.replace(/^\S+ /, '')));
+    assert(three.some((l) => l.ev === 'proxy' && l.ok === false && /TypeError: Cannot read property x/.test(l.note)), 'the generator\'s own error line');
+    assert(three.some((l) => l.ev === 'proxy' && l.ok === true && l.members[0] === 'displaySpeedLimit'), 'the good member alone');
     // the Store's log tool prints it
     const printed = require('child_process').execFileSync(process.execPath, [path.join(__dirname, '..', 'vietmap-signs-log', 'print-log.js')],
         { env: Object.assign({}, process.env, { VMS_RUN: T }), encoding: 'utf8' });

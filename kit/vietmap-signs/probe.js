@@ -86,7 +86,13 @@ function run(logFile, tmp, o) {
         else if (!pending[key]) pending[key] = setTimeout(write, 2000 - (now - lastAt[key]));
     };
     let up = 0, n = 0;
-    const one = (x) => {
+    // what the generator said went wrong: its Error line (its output starts with a page of its own source)
+    const genError = (e) => {
+        const text = String(e.stderr || '') + '\n' + String(e.stdout || '');
+        const lines = text.split('\n').filter((l) => /Error|not found|unknown|undefined|cannot/i.test(l) && l.length < 300);
+        return cut(lines.slice(-3).join(' | ') || text.slice(-300) || e.message, 400);
+    };
+    const one = (x, single) => {
         const dir = path.join(tmp, String(n++));
         let cfg;
         try {
@@ -100,8 +106,13 @@ function run(logFile, tmp, o) {
             cp.execFileSync(process.execPath, [o.gen || GEN, o.catalog || CATALOG, path.join(dir, 'manifest.json'), '0', path.join(dir, 'out')], { stdio: ['ignore', 'pipe', 'pipe'], timeout: 30000 });
             cfg = JSON.parse(fs.readFileSync(path.join(dir, 'out', x.name.replace(/\./g, '_') + '.json'), 'utf8'));
         } catch (e) {
-            say({ ev: 'proxy', iface: x.name, ok: false, note: 'description: ' + cut(String(e.stderr || '') + ' ' + e.message, 300) });
-            return Promise.resolve();
+            say({ ev: 'proxy', iface: x.name, ok: false, members: x.fields.concat(x.broadcasts), note: 'description: ' + genError(e) });
+            // one member the generator cannot describe spoils the lot: each alone then
+            const parts = x.fields.map((f) => ({ name: x.name, fields: [f], broadcasts: [] })).concat(x.broadcasts.map((b) => ({ name: x.name, fields: [], broadcasts: [b] })));
+            if (single || parts.length < 2) return Promise.resolve();
+            let each = Promise.resolve();
+            parts.forEach((p) => { each = each.then(() => one(p, true)); });
+            return each;
         }
         const allInsts = Object.keys(cfg.instances || { 1: 1 }), insts = allInsts.slice(0, 6);
         if (allInsts.length > 1) say({ ev: 'instances', iface: x.name, all: allInsts, opened: insts });
@@ -110,7 +121,7 @@ function run(logFile, tmp, o) {
             chain = chain.then(() => within(someip.buildProxy(cfg, String(inst)).then((p) => p.init().then(() => p)), 6000, 'proxy')).then((p) => {
                 held.push(p);
                 up++;
-                say({ ev: 'proxy', iface: x.name, inst, ok: true });
+                say(Object.assign({ ev: 'proxy', iface: x.name, inst, ok: true }, single ? { members: x.fields.concat(x.broadcasts) } : {}));
                 try { p.subscribeToAvailability((a) => say({ ev: 'available', iface: x.name, inst, up: !!a })); } catch (e) { /* older binding */ }
                 x.fields.concat(x.broadcasts).forEach((name, k) => {
                     const kind = k < x.fields.length ? 'field' : 'broadcast', on = got(x.name, name, kind, inst);

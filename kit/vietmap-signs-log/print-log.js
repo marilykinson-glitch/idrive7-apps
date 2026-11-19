@@ -4,11 +4,11 @@
  * speed limits and signs) for the MGU Store's log; the Store runs this once when the tool is installed,
  * its phone page shows it under Logs: updater. Read only. Lines are cut into pieces of 700 characters.
  * What the unit has (found, proxy, names) comes whole; of the values, per member the first 6 different
- * ones and the newest 14, so a chatty member cannot crowd the others out. Node 8.
+ * ones and the newest 60, so a chatty member cannot crowd the others out. Node 8.
  */
 const fs = require('fs');
 const RUN = process.env.VMS_RUN || '/run/vietmap-signs';
-const PIECE = 700, MAX_PIECES = 900;
+const PIECE = 700, MAX_PIECES = 1500;
 let n = 0;
 const out = (tag, text) => {
     text = String(text);
@@ -40,7 +40,7 @@ all.forEach((l) => {
 const starts = head.map((l, i) => (/"ev":"start"/.test(l) ? i : -1)).filter((i) => i >= 0);
 head.slice(starts.length ? starts[starts.length - 1] : 0).forEach((l) => out('probe', l));
 order.forEach((k) => {
-    const v = values[k], show = v.length <= 20 ? v : v.slice(0, 6).concat(v.slice(-14));
+    const v = values[k], show = v.length <= 70 ? v : v.slice(0, 10).concat(v.slice(-60));
     out('member', k + ' (' + v.length + ' gia tri khac nhau)');
     show.forEach((l) => out('value', l.replace(/"iface":"[^"]*",("inst":"[^"]*",)?"name":"[^"]*",/, '')));
 });

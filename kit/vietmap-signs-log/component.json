@@ -1,7 +1,7 @@
 {
   "id": "vietmap-signs-log",
   "kind": "tool",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "title": "Nhật ký dò biển bản đồ BMW",
   "description": "In nhật ký dò biển tốc độ của bản đồ BMW (mục Dò biển trong Cài đặt của app Biển báo VietMap) vào log của MGU Store để xem bằng điện thoại (Store → Settings → Phone access → quét QR → Logs: updater). Chỉ đọc. Cài là in một lần; muốn in lại thì gỡ rồi cài lại. Xong thì gỡ.",
   "license": "MIT",
