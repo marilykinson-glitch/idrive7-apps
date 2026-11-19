@@ -110,7 +110,8 @@ public class MainActivity extends Activity {
         GradientDrawable ring = new GradientDrawable();
         ring.setShape(GradientDrawable.OVAL);
         ring.setColor(Color.WHITE);
-        ring.setStroke(dp(9), RED);
+        // not red: the reader takes red rings on the screen for VietMap's sign, and this screen can be in its picture
+        ring.setStroke(dp(9), Color.parseColor("#5A6573"));
         signNum.setBackground(ring);
         row.addView(signNum, new LinearLayout.LayoutParams(dp(104), dp(104)));
         LinearLayout lines = new LinearLayout(this);

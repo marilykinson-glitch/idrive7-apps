@@ -213,7 +213,11 @@ public class SignReaderService extends AccessibilityService {
             }
         }
         java.util.Collections.sort(all, new java.util.Comparator<SignOcr.Ring>() {
-            @Override public int compare(SignOcr.Ring a, SignOcr.Ring b) { return b.size() - a.size(); }
+            // a ring with a number read in it before one without (an empty red ring is no sign), then the bigger
+            @Override public int compare(SignOcr.Ring a, SignOcr.Ring b) {
+                if ((a.number > 0) != (b.number > 0)) return a.number > 0 ? -1 : 1;
+                return b.size() - a.size();
+            }
         });
         List<Engine.Item> out = new ArrayList<>();
         for (int i = 0; i < all.size(); i++) {
