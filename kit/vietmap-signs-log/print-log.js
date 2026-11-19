@@ -8,6 +8,7 @@
  */
 const fs = require('fs');
 const RUN = process.env.VMS_RUN || '/run/vietmap-signs';
+const STATE = process.env.VMS_STATE || (process.env.VMS_RUN ? process.env.VMS_RUN : '/var/opt/vietmap-signs');   // the log, from helper 0.6.6 (kept across restarts)
 const PIECE = 700, MAX_PIECES = 1500;
 let n = 0;
 const out = (tag, text) => {
@@ -25,7 +26,9 @@ try {
     const st = JSON.parse(fs.readFileSync(RUN + '/status.json', 'utf8'));
     out('status', JSON.stringify({ tool: st.tool, probe: st.probe, camera: st.camera, speed: st.speed, limit: st.limit, source: st.source }));
 } catch (e) { out('status', 'khong doc duoc status.json: ' + e.message); }
-const all = lines(RUN + '/probe.log.1').concat(lines(RUN + '/probe.log'));
+const all = STATE === RUN ? lines(RUN + '/probe.log.1').concat(lines(RUN + '/probe.log'))
+    : lines(STATE + '/probe.log.1').concat(lines(STATE + '/probe.log'), lines(RUN + '/probe.log.1'), lines(RUN + '/probe.log'));
+if (all.length) out('span', 'nhat ky tu ' + all[0].slice(0, 24) + ' den ' + all[all.length - 1].slice(0, 24) + ', ' + all.length + ' dong, ' + all.filter((l) => /"ev":"start"/.test(l)).length + ' lan khoi dong bo do');
 if (!all.length) out('probe', 'chua co probe.log: bat "Do bien toc do cua ban do BMW" trong Cai dat cua app, chay xe vai phut roi cai lai cong cu nay');
 const head = [], values = {}, order = [];
 all.forEach((l) => {

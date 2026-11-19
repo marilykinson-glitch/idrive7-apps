@@ -53,7 +53,7 @@ const cp = require('child_process');
 const dgram = require('dgram');
 const zlib = require('zlib');
 
-const VERSION = '0.6.5';
+const VERSION = '0.6.6';
 const env = (k, d) => (process.env[k] !== undefined && process.env[k] !== '' ? process.env[k] : d);
 const CFG = {
     oap: env('VMS_OAP', '/var/opt/public/oap'),
@@ -427,10 +427,13 @@ function previewDrag(now) {
 /* ---------------- the probe for BMW's map speed limit (probe.js), while the app asks for it ---------------- */
 
 const probe = { child: null, startedAt: 0, exits: 0 };
-function probeLog() { return path.join(CFG.run, 'probe.log'); }
+// kept across restarts and updates (the first logs from a car were lost to an update: /run goes with the
+// service), next to the pairing code; at most 2 x 400 KB, only while the probe is on
+function probeLog() { return path.join(CFG.state, 'probe.log'); }
 function manageProbe(want, now) {
     if (want && !probe.child && (now - probe.startedAt > 60000 || now < probe.startedAt)) {
         probe.startedAt = now;
+        try { fs.mkdirSync(CFG.state, 0o755); } catch (e) { /* there */ }
         try {
             const child = cp.spawn(process.execPath, [path.join(__dirname, 'probe.js'), 'run', probeLog(), path.join(CFG.run, 'probe-tmp')],
                 { stdio: 'ignore', env: Object.assign({}, process.env, { VMS_CATALOG: CFG.catalog, VMS_GEN: CFG.gen, VMS_SOMEIP: typeof CFG.someip === 'string' ? CFG.someip : '' }) });
