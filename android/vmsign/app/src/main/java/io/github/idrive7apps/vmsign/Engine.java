@@ -23,7 +23,7 @@ import java.util.regex.Pattern;
  * number in VietMap's windows.
  */
 final class Engine {
-    static final String VERSION = "0.4.3";
+    static final String VERSION = "0.4.4";
     /** The biggest red-ringed number in VietMap's windows (SignOcr): the sign, when no line is picked. */
     static final String OCR_SIGN = "ocr:sign";
     static final String PREFS = "vmsign";
@@ -200,6 +200,8 @@ final class Engine {
             case "no phone yet": return "xe chưa nhận được gì";
             case "the phone stopped sending": return "xe không còn nhận được";
             case "no sign in VietMap": return "chưa có biển";
+            case "no sign on this road": return "đoạn đường này không có biển";
+            case "no sign on the centre screen": return "màn giữa không có biển";
             case "BMW shows its own sign": return "BMW đang hiện biển của xe (ưu tiên)";
             case "cluster-render is not installed": return "trên xe chưa cài cluster-render (Waze on cluster)";
             case "Waze on cluster is not installed": return "trên xe chưa cài Waze on cluster";

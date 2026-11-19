@@ -24,8 +24,8 @@
  * cluster draws through), class overlay, over the map in the cluster's map area (target map) and over
  * the HUD's map (target hud). It is shown only while Waze on cluster shows its map there
  * (/run/waze-on-cluster/status.json), so it never asks the cluster for a slot of its own; it goes 5 s
- * after the phone's last datagram, and while BMW's own sign shows, if the app says so (the app writes
- * BMW's displayed speed limit to its data/bmw_sign.json while it runs).
+ * after the phone's last datagram. With neither the camera's nor the phone's sign, the limit the car's own
+ * map has for the road (camera.js: dass.TrafficSignRecognition, what the cluster itself shows) is drawn.
  *
  * The app's choices are its own settings file (data/settings.json, written by the kit). The state goes
  * to /run/vietmap-signs/status.json (0644), which the app shows. What changes often goes through RAM,
@@ -53,7 +53,7 @@ const cp = require('child_process');
 const dgram = require('dgram');
 const zlib = require('zlib');
 
-const VERSION = '0.7.0';
+const VERSION = '0.7.1';
 const env = (k, d) => (process.env[k] !== undefined && process.env[k] !== '' ? process.env[k] : d);
 const CFG = {
     oap: env('VMS_OAP', '/var/opt/public/oap'),
@@ -70,7 +70,6 @@ const CFG = {
     crSocket: env('VMS_CR_SOCKET', ''),
     pollMs: Number(env('VMS_POLL_MS', 500)),
     phoneStaleMs: Number(env('VMS_PHONE_STALE_MS', 5000)),
-    bmwStaleMs: Number(env('VMS_BMW_STALE_MS', 4000)),
     wocStaleMs: Number(env('VMS_WOC_STALE_MS', 30000)),
     ruleMs: Number(env('VMS_RULE_MS', 30000)),
     loopback: env('VMS_LOOPBACK', '') === '1',     // tests: senders on 127.0.0.1 too
@@ -280,7 +279,7 @@ function findApp(now) {
     return null;
 }
 
-const DEFAULTS = { mode: 'on', show: 'both', side: 'right', hudSide: 'left', size: 'medium', bmw: 'hide', screen: 'on', warn: '5', camera: 'on', probe: 'off', bmwmap: 'off' };
+const DEFAULTS = { mode: 'on', show: 'both', side: 'right', hudSide: 'left', size: 'medium', screen: 'on', warn: '5', camera: 'on', probe: 'off', bmwmap: 'on' };
 const WARN = { off: null, '0': 0, '5': 5, '10': 10 };
 const POS_KEYS = ['mapX', 'mapY', 'hudX', 'hudY'];
 const PREVIEW_LIMIT = 60;
@@ -304,13 +303,12 @@ function desired(now) {
         side: values.side === 'left' ? 'left' : 'right',
         hudSide: values.hudSide === 'right' ? 'right' : 'left',
         size: SIZES[values.size] ? values.size : 'medium',
-        bmw: values.bmw === 'show' ? 'show' : 'hide',
         screen: values.screen !== 'off',
         camera: values.camera !== 'off',
         // look for BMW's map speed limit in the unit's interfaces and log what comes (probe.js)
         probe: values.probe === 'on',
         // BMW's map limit (camera.js mapCurrent), after the camera's and the phone's
-        bmwMap: values.bmwmap === 'on',
+        bmwMap: values.bmwmap !== 'off',
         // warn above the sign by this much (km/h), or null: no warning
         warn: Object.prototype.hasOwnProperty.call(WARN, String(values.warn)) ? WARN[String(values.warn)] : 5,
         mapPos: pos('mapX', 'mapY'),
@@ -517,16 +515,6 @@ function paired(p, addr, now) {
     return false;
 }
 
-/** BMW's own displayed speed limit, as the app last wrote it (only while the app runs). */
-function bmwSign(now) {
-    const app = findApp(now);
-    if (!app) return null;
-    const f = path.join(app.root, 'data', 'bmw_sign.json');
-    const b = readJson(f);
-    if (!b) return null;
-    const at = Date.parse(b.at) || mtime(f);
-    return { limit: b.limit, valid: !!b.valid, at, fresh: now - at < CFG.bmwStaleMs && now >= at - 5000 };
-}
 
 /* ---------------- Waze on cluster: is its map on the cluster, on the HUD ---------------- */
 
@@ -815,12 +803,9 @@ function decide(now) {
     // while it is being placed, 60 without any
     const source = camLimit ? 'camera' : fresh && phone.limit ? 'phone' : onScreen ? 'screen' : mapLimit ? 'bmwmap' : placing ? 'preview' : null;
     const limit = camLimit || (fresh && phone.limit) || onScreen || mapLimit || (placing ? PREVIEW_LIMIT : null);
-    const bmw = bmwSign(now);
-    const bmwShows = !!(bmw && bmw.fresh && bmw.valid && bmw.limit > 0);
-    const suppress = d.bmw === 'hide' && bmwShows;
     const g = geometry(d, woc);
     const wantMap = d.on && d.show !== 'hud', wantHud = d.on && d.show !== 'cluster';
-    const showOk = renderer.installed !== false && !!limit && (!suppress || placing);
+    const showOk = renderer.installed !== false && !!limit;
     const speed = carSpeed(now);
     const over = !!limit && !placing && d.warn !== null && speed !== null && speed > limit + d.warn;
     const map = Object.assign({ visible: showOk && wantMap && woc.map, guide: woc.guideHold === 0 ? 0 : 1 }, g.map);
@@ -831,14 +816,13 @@ function decide(now) {
     else if (placing) why = !renderer.installed ? 'cluster-render is not installed' : !woc.known ? 'Waze on cluster is not installed'
         : !(wantMap && woc.map) && !(wantHud && woc.hud) ? 'Waze on cluster shows no map there' : '';
     else if (reading && !limit) why = screen.error ? 'the centre screen cannot be read' : 'no sign on the centre screen';
-    else if (!limit && !phone.at) why = 'no phone yet';
-    else if (!limit && !fresh) why = 'the phone stopped sending';
+    else if (!limit && !phone.at) why = d.bmwMap && cam.map.ready ? 'no sign on this road' : 'no phone yet';
+    else if (!limit && !fresh) why = d.bmwMap && cam.map.ready ? 'no sign on this road' : 'the phone stopped sending';
     else if (!limit) why = 'no sign in VietMap';
-    else if (suppress) why = 'BMW shows its own sign';
     else if (!renderer.installed) why = 'cluster-render is not installed';
     else if (!woc.known) why = 'Waze on cluster is not installed';
     else if (!(wantMap && woc.map) && !(wantHud && woc.hud)) why = 'Waze on cluster shows no map there';
-    return { d, woc, placing, reading, speed, over, source, bmw: bmw ? { limit: bmw.limit, valid: bmw.valid, fresh: bmw.fresh, suppress } : null, limit, map, hud, why };
+    return { d, woc, placing, reading, speed, over, source, limit, map, hud, why };
 }
 
 function tick() {
@@ -851,7 +835,7 @@ function tick() {
     if (CFG.camera) manageProbe(s.d.probe, now);
     applyLayers({ limit: s.limit, map: s.map, hud: s.hud, warn: s.over });
     last = { shown: ['map', 'hud'].filter((t) => s[t].visible), why: s.why, limit: s.limit };
-    const key = JSON.stringify([last, s.bmw, renderer, fw.error, s.d, s.placing, s.reading, s.over, s.woc.map, s.woc.hud, phone.from, phone.bad, phone.ignored,
+    const key = JSON.stringify([last, renderer, fw.error, s.d, s.placing, s.reading, s.over, s.woc.map, s.woc.hud, phone.from, phone.bad, phone.ignored,
         screen.limit, screen.error, screen.shots, cam.limit, cam.signs, cam.ready, cam.error, cam.up, ownSpeed(now) !== null, pair.refused, appRun.dir, appRun.uid, appRun.by, pair.code, s.d.probe, !!probe.child, cam.map.cls, cam.map.ready, cam.up.map, camera.mapCurrent(cam, now)]);
     if (key !== lastKey || now - lastWrite > 2000) { writeStatus(s, now); lastKey = key; lastWrite = now; }
     return s;
@@ -862,7 +846,7 @@ function writeStatus(s, now) {
         tool: VERSION, at: new Date(now).toISOString(), app: s.d.app, settings: s.d, port: CFG.port,
         phone: { from: phone.from, at: phone.at ? new Date(phone.at).toISOString() : null, ago_ms: phone.at ? now - phone.at : null,
             seq: phone.seq, limit: phone.limit, test: phone.test, app: phone.ver, packets: phone.packets, ignored: phone.ignored, bad: phone.bad },
-        limit: s.limit, shown: last.shown, why: s.why, bmw: s.bmw,
+        limit: s.limit, shown: last.shown, why: s.why,
         waze: { known: s.woc.known, fresh: s.woc.fresh, state: s.woc.state || null, map: s.woc.map, hud: s.woc.hud, hudBox: s.woc.hudBox || null },
         placing: s.placing,
         geometry: { map: { x: s.map.x, y: s.map.y, size: s.map.size, w: MAP_W, h: MAP_H, placed: !!s.d.mapPos },

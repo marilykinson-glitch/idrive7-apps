@@ -35,8 +35,8 @@ const TARGETS = {
 };
 // presentClassLimitSpeed is a class, not km/h. Seen on a G30 with the cluster's sign beside it: 6 = 30;
 // 254 with no sign (and unitOfMeasurementSpeedLimit 2); 1 while creeping off the road (5, as inner roads are
-// mapped). Taken as class x 5 km/h for 1..30 (5..150) - one road confirmed so far, so the app's setting for
-// it is off by default and the class is shown beside the limit.
+// mapped). Class x 5 km/h for 1..30 (5..150): confirmed on the car against the cluster's own sign at 30, 50
+// and 60. Any other class is no sign, never a guess; the class is shown beside the limit on the app's screen.
 const MAP_NONE = 254, MAP_MAX_CLASS = 30, MAP_HOLD_KM = 1, MAP_STALE_MS = 10000;
 
 /** What one TrafficSignRecognition value says: { cls, limit (km/h, 0: none), unit, match, next }. */

@@ -1,8 +1,8 @@
 {
   "id": "vietmap_signs",
   "title": "Biển báo VietMap",
-  "description": "Hiện biển tốc độ từ camera trước BMW, hoặc từ VietMap Live, lên đồng hồ và HUD. Nhận biển từ màn giữa (CarPlay) hoặc từ app Trình hỗ trợ VietMap Live trên điện thoại qua Wi-Fi xe (ghép đôi bằng mã 6 số ở tab Ghép đôi). Chớp khi xe chạy nhanh hơn biển. Trợ thủ vietmap-signs tự cài kèm; cần có Waze on cluster và cluster-render.",
-  "version": "0.7.0",
+  "description": "Hiện biển tốc độ lên đồng hồ và HUD: ưu tiên biển camera trước BMW, rồi biển VietMap Live (từ app Trình hỗ trợ VietMap Live trên điện thoại qua Wi-Fi xe, ghép đôi bằng mã 6 số), cuối cùng là giới hạn theo bản đồ BMW. Chớp khi xe chạy nhanh hơn biển. Trợ thủ vietmap-signs tự cài kèm; cần có Waze on cluster và cluster-render.",
+  "version": "0.7.1",
   "vendor": "custom",
   "loggingId": "OAA5",
   "iconGlyph": "flag",
@@ -144,17 +144,17 @@
     },
     {
       "key": "bmwmap",
-      "label": "Biển từ bản đồ BMW khi không có biển camera hay VietMap (thử nghiệm)",
+      "label": "Biển từ bản đồ BMW khi không có biển camera hay VietMap",
       "type": "choice",
-      "default": "off",
+      "default": "on",
       "options": [
-        [
-          "off",
-          "Tắt"
-        ],
         [
           "on",
           "Bật"
+        ],
+        [
+          "off",
+          "Tắt"
         ]
       ]
     },
@@ -195,22 +195,6 @@
         [
           "10",
           "Vượt 10 km/h"
-        ]
-      ]
-    },
-    {
-      "key": "probe",
-      "label": "Dò biển tốc độ của bản đồ BMW (thử nghiệm: ghi nhật ký để gửi đi)",
-      "type": "choice",
-      "default": "off",
-      "options": [
-        [
-          "off",
-          "Tắt"
-        ],
-        [
-          "on",
-          "Bật"
         ]
       ]
     },
@@ -267,6 +251,22 @@
         [
           "software",
           "Phần mềm"
+        ]
+      ]
+    },
+    {
+      "key": "probe",
+      "label": "Chẩn đoán: dò tín hiệu biển của xe (ghi nhật ký, xong thì tắt)",
+      "type": "choice",
+      "default": "off",
+      "options": [
+        [
+          "off",
+          "Tắt"
+        ],
+        [
+          "on",
+          "Bật"
         ]
       ]
     }

@@ -25,7 +25,7 @@ const WHY = {
     'no sign in VietMap': 'No sign in VietMap now',
     'no sign on the centre screen': 'No sign on the centre screen now',
     'the centre screen cannot be read': 'The centre screen cannot be read',
-    'BMW shows its own sign': 'BMW shows its own sign',
+    'no sign on this road': 'No sign on this road now',
     'cluster-render is not installed': 'Install Waze on cluster (with cluster-render) in the mgu Store',
     'Waze on cluster is not installed': 'Install Waze on cluster in the mgu Store',
     'Waze on cluster shows no map there': 'Shown when Waze on cluster shows the map',
@@ -69,7 +69,8 @@ function report(s, want, bmw) {
     const unpaired = pr.on && pr.refused && pr.ago_ms !== null && pr.ago_ms < 10000 && !(p.at && p.ago_ms < pr.ago_ms);
     if (unpaired) lines.push({ text: 'Phone: ' + pr.from + ' · wrong pairing code', kind: 'warn' });
     else if (p.at) lines.push({ text: 'Phone: ' + p.from + ' · ' + ago(p.ago_ms), kind: p.ago_ms < 5000 ? 'go' : 'warn' });
-    else if (!sc.on) lines.push({ text: 'Phone: not connected yet', kind: 'warn' });
+    // (with the map's limit the phone is an extra, not a must)
+    else if (!sc.on) lines.push({ text: 'Phone: not connected yet', kind: s.bmwmap && s.bmwmap.on && s.bmwmap.ready ? 'dim' : 'warn' });
     if (sc.on) {
         if (sc.reading) {
             const rd = sc.error ? { text: 'Centre screen: ' + sc.error, kind: 'warn' }

@@ -79,7 +79,6 @@ function installApp(uid, id) {
     const data = path.join(D.oap, 'oap_' + uid, 'data');
     return {
         settings: (v) => fs.writeFileSync(path.join(data, 'settings.json'), JSON.stringify(v)),
-        bmw: (v) => fs.writeFileSync(path.join(data, 'bmw_sign.json'), JSON.stringify(v)),
     };
 }
 
@@ -128,13 +127,13 @@ function sendNoAnswer(msg) {
 
     // --- settings: the defaults without the app, then the app's ---
     let d = vms.desired(Date.now());
-    assert.deepStrictEqual(d, { app: null, on: true, show: 'both', side: 'right', hudSide: 'left', size: 'medium', bmw: 'hide', screen: true, camera: true, probe: false, bmwMap: false, warn: 5, mapPos: null, hudPos: null });
+    assert.deepStrictEqual(d, { app: null, on: true, show: 'both', side: 'right', hudSide: 'left', size: 'medium', screen: true, camera: true, probe: false, bmwMap: true, warn: 5, mapPos: null, hudPos: null });
     vms._reset();
     const app = installApp(12301, 'vietmap_signs2');
     assert.strictEqual(vms.desired(Date.now()).app, 'vietmap_signs2');
-    app.settings({ side: 'left', size: 'large', show: 'cluster', bmw: 'show', mode: 'on' });
+    app.settings({ side: 'left', size: 'large', show: 'cluster', mode: 'on' });
     d = vms.desired(Date.now());
-    assert.deepStrictEqual([d.side, d.size, d.show, d.bmw, d.on], ['left', 'large', 'cluster', 'show', true]);
+    assert.deepStrictEqual([d.side, d.size, d.show, d.on], ['left', 'large', 'cluster', true]);
 
     // --- where it goes: inside the map area's fade, inside Waze on cluster's HUD box ---
     woc({ hud: 1, hud_state: 'showing', hud_width_pct: 80 });
@@ -202,19 +201,8 @@ function sendNoAnswer(msg) {
     assert.strictEqual(calls('image').length, 2);
     assert.strictEqual(calls('pixels').length, 4);
 
-    // BMW shows a sign: VietMap's goes (the default), or stays ("show")
-    app.bmw({ at: new Date().toISOString(), limit: 50, valid: true });
-    a = await send({ t: 'vms', v: 1, seq: 4, limit: 80 });
-    assert.deepStrictEqual(a.shown, []);
-    assert.strictEqual(a.why, 'BMW shows its own sign');
-    assert.strictEqual(status().bmw.suppress, true);
-    app.settings({ bmw: 'show' });
-    a = await send({ t: 'vms', v: 1, seq: 5, limit: 80 });
-    assert.deepStrictEqual(a.shown.sort(), ['hud', 'map']);
-    app.bmw({ at: new Date(Date.now() - 60000).toISOString(), limit: 50, valid: true });
-    app.settings({});
     a = await send({ t: 'vms', v: 1, seq: 6, limit: 80 });
-    assert.deepStrictEqual(a.shown.sort(), ['hud', 'map'], 'an old BMW reading hides nothing');
+    assert.deepStrictEqual(a.shown.sort(), ['hud', 'map']);
 
     // the cluster only; a bigger sign is a new layer; the left side moves it
     app.settings({ show: 'cluster', size: 'large', side: 'left' });
@@ -285,8 +273,6 @@ function sendNoAnswer(msg) {
     vms.tick();
     assert(calls('set').some((c) => c[2].x === 510 && c[2].y === 300), 'moved');
     assert.strictEqual(calls('image').length, images, 'no new layer for a move');
-    // BMW's sign hides nothing while placing
-    app.bmw({ at: new Date().toISOString(), limit: 50, valid: true });
     assert.deepStrictEqual(vms.tick().map.visible, true);
     fs.writeFileSync(path.join(data, 'preview.json'), JSON.stringify({ at: new Date(Date.now() - 10000).toISOString() }));
     s = vms.tick();
@@ -306,7 +292,6 @@ function sendNoAnswer(msg) {
         throw new Error('never: ' + what + ' ' + JSON.stringify(vms._last()));
     };
     app.settings({ screen: 'on' });
-    app.bmw({ at: new Date(Date.now() - 60000).toISOString(), limit: 50, valid: true });
     woc({ state: 'showing', cluster: 1, hud: 1, hud_state: 'showing' });
     vms.CFG.grabber = grabber;
     await until(() => vms._last().limit === 80, 'the centre screen\'s 80');
@@ -462,10 +447,11 @@ fs.mkdirSync(out); fs.writeFileSync(out + '/' + i.replace(/\\./g, '_') + '.json'
     const lines = [];
     const held = camera.start(cs2, { run: path.join(T, 'camrun'), catalog: '/nowhere.json', gen: genFake, someip: fakeBinding, log: (l) => lines.push(l) });
     fs.mkdirSync(path.join(T, 'camrun'), { recursive: true });
-    for (let k = 0; k < 100 && !(cs2.ready && cs2.limit); k++) await sleep(30);
+    for (let k = 0; k < 100 && !(cs2.ready && cs2.limit && cs2.map.ready); k++) await sleep(30);
     assert.strictEqual(cs2.limit, 70, lines.join(' / '));
-    assert.deepStrictEqual(subs.map((x) => x[1]).sort(), ['TrafficSignRecognitionFrontCamera', 'statusCarSpeed2']);
-    assert.strictEqual(held.length, 2, 'the proxies are kept');
+    assert.deepStrictEqual(subs.map((x) => x[1]).sort(), ['TrafficSignRecognition', 'TrafficSignRecognitionFrontCamera', 'statusCarSpeed2']);
+    assert.strictEqual(cs2.map.ready, true, 'the map\'s limit is listened to as well');
+    assert.strictEqual(held.length, 3, 'the proxies are kept');
     assert(fs.existsSync(path.join(T, 'camrun', 'someip', 'camera', 'de_bmw_environmentalmodel_SignRecognitionFrontCamera.json')));
 
     // --- the app's folder in RAM: made for the app's user, 0700; speed and preview read from there ---
@@ -631,8 +617,10 @@ fs.mkdirSync(out); fs.writeFileSync(out + '/' + i.replace(/\\./g, '_') + '.json'
     app.settings({ camera: 'on' });
     await sleep(700);
     w = vms.tick();
-    assert.notStrictEqual(w.source, 'bmwmap', 'off by default');
-    app.settings({ bmwmap: 'on' });
+    app.settings({ bmwmap: 'off' });
+    w = vms.tick();
+    assert.notStrictEqual(w.source, 'bmwmap', 'off in the app: not used');
+    app.settings({});
     w = vms.tick();
     assert.deepStrictEqual([w.limit, w.source], [30, 'bmwmap'], 'the map\'s 30 with nothing else');
     assert.deepStrictEqual([status().bmwmap.cls, status().bmwmap.limit], [6, 30]);
