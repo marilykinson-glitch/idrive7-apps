@@ -520,17 +520,19 @@ fs.mkdirSync(out); fs.writeFileSync(out + '/' + i.replace(/\\./g, '_') + '.json'
     const pdir = path.join(D.proc, '4242');
     fs.mkdirSync(pdir, { recursive: true });
     fs.writeFileSync(path.join(pdir, 'cmdline'), ['/usr/bin/node', path.join(D.oap, 'oap_12301', 'source', 'javascript', 'app.js')].join('\0') + '\0');
-    fs.writeFileSync(path.join(pdir, 'status'), 'Name:\tnode\nUid:\t3456\t3456\t3456\t3456\nGid:\t7890\t7890\t7890\t7890\n');
+    // (only root can give a folder away: elsewhere the made-up program runs as this test's own user)
+    const isRoot = process.getuid() === 0, PU = isRoot ? 3456 : process.getuid(), PG = isRoot ? 7890 : process.getgid();
+    fs.writeFileSync(path.join(pdir, 'status'), 'Name:\tnode\nUid:\t' + PU + '\t' + PU + '\nGid:\t' + PG + '\t' + PG + '\n');
     fs.mkdirSync(path.join(D.proc, '99'), { recursive: true });       // someone else's
     fs.writeFileSync(path.join(D.proc, '99', 'cmdline'), '/usr/bin/node\0/somewhere/else.js\0');
     fs.writeFileSync(path.join(D.proc, '99', 'status'), 'Uid:\t1111\t1111\t1111\t1111\nGid:\t1111\t1111\t1111\t1111\n');
     vms._reset();
     vms.tick();
     let ost = fs.statSync(ramDir);
-    assert.deepStrictEqual([ost.uid, ost.gid, ost.mode & 0o777], [3456, 7890, 0o770], 'the app\'s program\'s user and group');
-    assert.deepStrictEqual(status().app_dir_owner, { uid: 3456, gid: 7890, by: 'process' });
+    assert.deepStrictEqual([ost.uid, ost.gid, ost.mode & 0o777], [PU, PG, 0o770], 'the app\'s program\'s user and group');
+    assert.deepStrictEqual(status().app_dir_owner, { uid: PU, gid: PG, by: 'process' });
     const pst = fs.statSync(path.join(ramDir, 'pair.json'));
-    assert.deepStrictEqual([pst.uid, pst.gid, pst.mode & 0o777], [3456, 7890, 0o640], 'the code: that user\'s, its group can read it');
+    assert.deepStrictEqual([pst.uid, pst.gid, pst.mode & 0o777], [PU, PG, 0o640], 'the code: that user\'s, its group can read it');
     assert(/^\d{6}$/.test(status().pairing.code), 'the code in the status too');
     // a new code asked through the data folder (an app that cannot write the RAM folder)
     const codeBefore = status().pairing.code;

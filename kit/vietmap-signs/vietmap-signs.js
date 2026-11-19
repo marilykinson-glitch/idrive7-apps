@@ -846,7 +846,7 @@ function tick() {
     applyLayers({ limit: s.limit, map: s.map, hud: s.hud, warn: s.over });
     last = { shown: ['map', 'hud'].filter((t) => s[t].visible), why: s.why, limit: s.limit };
     const key = JSON.stringify([last, s.bmw, renderer, fw.error, s.d, s.placing, s.reading, s.over, s.woc.map, s.woc.hud, phone.from, phone.bad, phone.ignored,
-        screen.limit, screen.error, screen.shots, cam.limit, cam.signs, cam.ready, cam.error, cam.up, ownSpeed(now) !== null, pair.refused, appRun.dir, appRun.uid, pair.code]);
+        screen.limit, screen.error, screen.shots, cam.limit, cam.signs, cam.ready, cam.error, cam.up, ownSpeed(now) !== null, pair.refused, appRun.dir, appRun.uid, appRun.by, pair.code, s.d.probe, !!probe.child]);
     if (key !== lastKey || now - lastWrite > 2000) { writeStatus(s, now); lastKey = key; lastWrite = now; }
     return s;
 }
