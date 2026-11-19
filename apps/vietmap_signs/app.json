@@ -2,7 +2,7 @@
   "id": "vietmap_signs",
   "title": "Biển báo VietMap",
   "description": "Hiện biển tốc độ từ camera trước BMW, hoặc từ VietMap Live, lên đồng hồ và HUD. Nhận biển từ màn giữa (CarPlay) hoặc từ app Trình hỗ trợ VietMap Live trên điện thoại qua Wi-Fi xe (ghép đôi bằng mã 6 số ở tab Ghép đôi). Chớp khi xe chạy nhanh hơn biển. Trợ thủ vietmap-signs tự cài kèm; cần có Waze on cluster và cluster-render.",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "vendor": "custom",
   "loggingId": "OAA5",
   "iconGlyph": "flag",
@@ -18,35 +18,241 @@
       "kind": "canvas",
       "title": "Biển báo VietMap",
       "buttons": [
-        ["BTN_ON", "Bật"],
-        ["BTN_OFF", "Tắt"],
-        ["BTN_SHOW", "Hiện trên"],
-        ["BTN_SETTINGS", "Cài đặt"]
+        [
+          "BTN_ON",
+          "Bật"
+        ],
+        [
+          "BTN_OFF",
+          "Tắt"
+        ],
+        [
+          "BTN_SHOW",
+          "Hiện trên"
+        ],
+        [
+          "BTN_SETTINGS",
+          "Cài đặt"
+        ]
       ]
     }
   ],
   "settings": [
-    {"key": "mode", "label": "Biển tốc độ trên đồng hồ", "type": "choice", "default": "on",
-     "options": [["on", "Bật"], ["off", "Tắt"]]},
-    {"key": "show", "label": "Hiện trên", "type": "choice", "default": "both",
-     "options": [["both", "Đồng hồ và HUD"], ["cluster", "Chỉ đồng hồ"], ["hud", "Chỉ HUD"]]},
-    {"key": "side", "label": "Vị trí biển", "type": "choice", "default": "right",
-     "options": [["right", "Trên, bên phải"], ["left", "Trên, bên trái"]]},
-    {"key": "hudSide", "label": "Vị trí biển trên HUD", "type": "choice", "default": "left",
-     "options": [["left", "Trên, bên trái"], ["right", "Trên, bên phải"]]},
-    {"key": "size", "label": "Cỡ biển", "type": "choice", "default": "medium",
-     "options": [["small", "Nhỏ"], ["medium", "Vừa"], ["large", "Lớn"]]},
-    {"key": "camera", "label": "Ưu tiên biển camera BMW", "type": "choice", "default": "on",
-     "options": [["on", "Bật"], ["off", "Tắt: chỉ biển VietMap"]]},
-    {"key": "screen", "label": "Đọc biển trên màn giữa (CarPlay) - thử nghiệm, có thể đọc sai", "type": "choice", "default": "off",
-     "options": [["off", "Tắt"], ["on", "Bật"]]},
-    {"key": "warn", "label": "Cảnh báo khi chạy nhanh hơn biển", "type": "choice", "default": "5",
-     "options": [["off", "Tắt"], ["0", "Vượt biển là báo"], ["5", "Vượt 5 km/h"], ["10", "Vượt 10 km/h"]]},
-    {"key": "theme", "label": "Màu giao diện", "type": "choice", "default": "m_tricolour",
-     "options": [["m_red", "M Red"], ["m_tricolour", "M Tricolour"], ["ice", "Ice White"], ["amber", "Night Amber"]]},
-    {"key": "layout", "label": "Bố cục màn hình", "type": "choice", "default": "full",
-     "options": [["full", "Toàn màn hình"], ["standard", "Tiêu chuẩn"]]},
-    {"key": "renderer", "label": "Bộ vẽ", "type": "choice", "default": "auto",
-     "options": [["auto", "GPU 60 fps (mặc định)"], ["software", "Phần mềm"]]}
+    {
+      "key": "mode",
+      "label": "Biển tốc độ trên đồng hồ",
+      "type": "choice",
+      "default": "on",
+      "options": [
+        [
+          "on",
+          "Bật"
+        ],
+        [
+          "off",
+          "Tắt"
+        ]
+      ]
+    },
+    {
+      "key": "show",
+      "label": "Hiện trên",
+      "type": "choice",
+      "default": "both",
+      "options": [
+        [
+          "both",
+          "Đồng hồ và HUD"
+        ],
+        [
+          "cluster",
+          "Chỉ đồng hồ"
+        ],
+        [
+          "hud",
+          "Chỉ HUD"
+        ]
+      ]
+    },
+    {
+      "key": "side",
+      "label": "Vị trí biển",
+      "type": "choice",
+      "default": "right",
+      "options": [
+        [
+          "right",
+          "Trên, bên phải"
+        ],
+        [
+          "left",
+          "Trên, bên trái"
+        ]
+      ]
+    },
+    {
+      "key": "hudSide",
+      "label": "Vị trí biển trên HUD",
+      "type": "choice",
+      "default": "left",
+      "options": [
+        [
+          "left",
+          "Trên, bên trái"
+        ],
+        [
+          "right",
+          "Trên, bên phải"
+        ]
+      ]
+    },
+    {
+      "key": "size",
+      "label": "Cỡ biển",
+      "type": "choice",
+      "default": "medium",
+      "options": [
+        [
+          "small",
+          "Nhỏ"
+        ],
+        [
+          "medium",
+          "Vừa"
+        ],
+        [
+          "large",
+          "Lớn"
+        ]
+      ]
+    },
+    {
+      "key": "camera",
+      "label": "Ưu tiên biển camera BMW",
+      "type": "choice",
+      "default": "on",
+      "options": [
+        [
+          "on",
+          "Bật"
+        ],
+        [
+          "off",
+          "Tắt: chỉ biển VietMap"
+        ]
+      ]
+    },
+    {
+      "key": "screen",
+      "label": "Đọc biển trên màn giữa (CarPlay) - thử nghiệm, có thể đọc sai",
+      "type": "choice",
+      "default": "off",
+      "options": [
+        [
+          "off",
+          "Tắt"
+        ],
+        [
+          "on",
+          "Bật"
+        ]
+      ]
+    },
+    {
+      "key": "warn",
+      "label": "Cảnh báo khi chạy nhanh hơn biển",
+      "type": "choice",
+      "default": "5",
+      "options": [
+        [
+          "off",
+          "Tắt"
+        ],
+        [
+          "0",
+          "Vượt biển là báo"
+        ],
+        [
+          "5",
+          "Vượt 5 km/h"
+        ],
+        [
+          "10",
+          "Vượt 10 km/h"
+        ]
+      ]
+    },
+    {
+      "key": "probe",
+      "label": "Dò biển tốc độ của bản đồ BMW (thử nghiệm: ghi nhật ký để gửi đi)",
+      "type": "choice",
+      "default": "off",
+      "options": [
+        [
+          "off",
+          "Tắt"
+        ],
+        [
+          "on",
+          "Bật"
+        ]
+      ]
+    },
+    {
+      "key": "theme",
+      "label": "Màu giao diện",
+      "type": "choice",
+      "default": "m_tricolour",
+      "options": [
+        [
+          "m_red",
+          "M Red"
+        ],
+        [
+          "m_tricolour",
+          "M Tricolour"
+        ],
+        [
+          "ice",
+          "Ice White"
+        ],
+        [
+          "amber",
+          "Night Amber"
+        ]
+      ]
+    },
+    {
+      "key": "layout",
+      "label": "Bố cục màn hình",
+      "type": "choice",
+      "default": "full",
+      "options": [
+        [
+          "full",
+          "Toàn màn hình"
+        ],
+        [
+          "standard",
+          "Tiêu chuẩn"
+        ]
+      ]
+    },
+    {
+      "key": "renderer",
+      "label": "Bộ vẽ",
+      "type": "choice",
+      "default": "auto",
+      "options": [
+        [
+          "auto",
+          "GPU 60 fps (mặc định)"
+        ],
+        [
+          "software",
+          "Phần mềm"
+        ]
+      ]
+    }
   ]
 }

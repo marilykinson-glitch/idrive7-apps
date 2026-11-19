@@ -50,7 +50,7 @@
       "requires": {
         "idrive7-renderd": "2.1.7",
         "mgu-inputgate": "1.0.0",
-        "vietmap-signs": "0.6.1"
+        "vietmap-signs": "0.6.2"
       },
       "build": {
         "python": "kit/tools/build.py",
@@ -119,6 +119,14 @@
       "id": "vietmap-signs",
       "path": "kit/vietmap-signs",
       "title": "Trợ thủ biển báo VietMap",
+      "mguHmi": [
+        "ID7"
+      ]
+    },
+    {
+      "id": "vietmap-signs-log",
+      "path": "kit/vietmap-signs-log",
+      "title": "Nhật ký dò biển bản đồ BMW",
       "mguHmi": [
         "ID7"
       ]

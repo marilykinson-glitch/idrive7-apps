@@ -62,3 +62,13 @@ Tests: `node kit/tools/test_vietmap_signs.js` (the helper against a made-up head
   Only the settings (on a change) go to the app's data folder.
 - **Position**: a finger on the sign in a picture drags it; the cluster and the HUD follow at once (the
   place goes through `preview.json`), and it is saved once, when the finger comes up.
+
+## Looking for BMW's map speed limit (helper 0.6.2)
+
+The limit BMW's own map knows (shown by the cluster with no sign in sight) is not read yet:
+TrafficSignDisplayControl and CCP gave nothing on a G30. Settings → "Dò biển tốc độ của bản đồ BMW" starts
+`probe.js` beside the helper: it lists every interface and member of the unit's SOME/IP catalogue named for
+a speed limit, a sign, the horizon, road attributes or map matching, opens them read only (subscribe and
+read; no method is called) and logs each different value to `/run/vietmap-signs/probe.log` (RAM). Drive a
+few minutes over roads with known limits, then install the tool **Nhật ký dò biển bản đồ BMW**
+(`kit/vietmap-signs-log`): it prints the log into the Store's log (phone page → Logs: updater).

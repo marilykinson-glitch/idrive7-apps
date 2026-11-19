@@ -53,7 +53,7 @@ const cp = require('child_process');
 const dgram = require('dgram');
 const zlib = require('zlib');
 
-const VERSION = '0.6.1';
+const VERSION = '0.6.2';
 const env = (k, d) => (process.env[k] !== undefined && process.env[k] !== '' ? process.env[k] : d);
 const CFG = {
     oap: env('VMS_OAP', '/var/opt/public/oap'),
@@ -280,7 +280,7 @@ function findApp(now) {
     return null;
 }
 
-const DEFAULTS = { mode: 'on', show: 'both', side: 'right', hudSide: 'left', size: 'medium', bmw: 'hide', screen: 'on', warn: '5', camera: 'on' };
+const DEFAULTS = { mode: 'on', show: 'both', side: 'right', hudSide: 'left', size: 'medium', bmw: 'hide', screen: 'on', warn: '5', camera: 'on', probe: 'off' };
 const WARN = { off: null, '0': 0, '5': 5, '10': 10 };
 const POS_KEYS = ['mapX', 'mapY', 'hudX', 'hudY'];
 const PREVIEW_LIMIT = 60;
@@ -307,6 +307,8 @@ function desired(now) {
         bmw: values.bmw === 'show' ? 'show' : 'hide',
         screen: values.screen !== 'off',
         camera: values.camera !== 'off',
+        // look for BMW's map speed limit in the unit's interfaces and log what comes (probe.js)
+        probe: values.probe === 'on',
         // warn above the sign by this much (km/h), or null: no warning
         warn: Object.prototype.hasOwnProperty.call(WARN, String(values.warn)) ? WARN[String(values.warn)] : 5,
         mapPos: pos('mapX', 'mapY'),
@@ -420,6 +422,28 @@ function previewDrag(now) {
     const p = appFile(now, 'preview.json', 1000);
     const d = p && p.j.drag;
     return d && (d.t === 'map' || d.t === 'hud') && Number.isFinite(d.x) && Number.isFinite(d.y) ? { t: d.t, x: Math.round(d.x), y: Math.round(d.y) } : null;
+}
+
+/* ---------------- the probe for BMW's map speed limit (probe.js), while the app asks for it ---------------- */
+
+const probe = { child: null, startedAt: 0, exits: 0 };
+function probeLog() { return path.join(CFG.run, 'probe.log'); }
+function manageProbe(want, now) {
+    if (want && !probe.child && (now - probe.startedAt > 60000 || now < probe.startedAt)) {
+        probe.startedAt = now;
+        try {
+            const child = cp.spawn(process.execPath, [path.join(__dirname, 'probe.js'), 'run', probeLog(), path.join(CFG.run, 'probe-tmp')],
+                { stdio: 'ignore', env: Object.assign({}, process.env, { VMS_CATALOG: CFG.catalog, VMS_GEN: CFG.gen, VMS_SOMEIP: typeof CFG.someip === 'string' ? CFG.someip : '' }) });
+            probe.child = child;
+            log('probe: started (pid ' + child.pid + '), log ' + probeLog());
+            child.on('exit', (code) => { if (probe.child === child) probe.child = null; probe.exits++; log('probe: ended (' + code + ')'); });
+            child.on('error', (e) => { if (probe.child === child) probe.child = null; log('probe: ' + e.message); });
+        } catch (e) { log('probe: ' + e.message); }
+    } else if (!want && probe.child) {
+        try { probe.child.kill('SIGTERM'); } catch (e) { /* gone */ }
+        probe.child = null;
+        log('probe: stopped');
+    }
 }
 
 /* ---------------- pairing: the phone sends the code the app shows ---------------- */
@@ -818,6 +842,7 @@ function tick() {
     appRunDir(now);
     pairToApp(now);
     const s = decide(now);
+    if (CFG.camera) manageProbe(s.d.probe, now);
     applyLayers({ limit: s.limit, map: s.map, hud: s.hud, warn: s.over });
     last = { shown: ['map', 'hud'].filter((t) => s[t].visible), why: s.why, limit: s.limit };
     const key = JSON.stringify([last, s.bmw, renderer, fw.error, s.d, s.placing, s.reading, s.over, s.woc.map, s.woc.hud, phone.from, phone.bad, phone.ignored,
@@ -846,6 +871,7 @@ function writeStatus(s, now) {
         app_dir: appRun.dir, app_dir_error: appRun.error,
         // the code: also here, where the app surely reads it (the status is on the unit only, in RAM)
         pairing: { on: CFG.pairing, code: CFG.pairing ? pairCode() : null, refused: pair.refused, from: pair.from, ago_ms: pair.at ? now - pair.at : null, error: pair.error },
+        probe: { on: s.d.probe, running: !!probe.child, bytes: (() => { try { return fs.statSync(probeLog()).size; } catch (e) { return 0; } })() },
         app_dir_owner: appRun.dir ? { uid: appRun.uid, gid: appRun.gid, by: appRun.by } : null,
         camera: { on: s.d.camera, ready: cam.ready, error: cam.error, up: cam.up, limit: cam.limit,
             at: cam.at ? new Date(cam.at).toISOString() : null, km: Math.round(cam.km * 10) / 10, seen: cam.signs,
@@ -904,6 +930,7 @@ function run() {
         log('stopping (' + sig + ')');
         clearTimeout(timer);
         flashing(false);
+        manageProbe(false, Date.now());
         try { if (cr) cr.close(); } catch (e) { /* gone */ }
         try { removeRules(); } catch (e) { /* gone */ }
         try { sock.close(); } catch (e) { /* gone */ }

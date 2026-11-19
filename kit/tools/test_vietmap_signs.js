@@ -128,7 +128,7 @@ function sendNoAnswer(msg) {
 
     // --- settings: the defaults without the app, then the app's ---
     let d = vms.desired(Date.now());
-    assert.deepStrictEqual(d, { app: null, on: true, show: 'both', side: 'right', hudSide: 'left', size: 'medium', bmw: 'hide', screen: true, camera: true, warn: 5, mapPos: null, hudPos: null });
+    assert.deepStrictEqual(d, { app: null, on: true, show: 'both', side: 'right', hudSide: 'left', size: 'medium', bmw: 'hide', screen: true, camera: true, probe: false, warn: 5, mapPos: null, hudPos: null });
     vms._reset();
     const app = installApp(12301, 'vietmap_signs2');
     assert.strictEqual(vms.desired(Date.now()).app, 'vietmap_signs2');
@@ -593,6 +593,41 @@ fs.mkdirSync(out); fs.writeFileSync(out + '/' + i.replace(/\\./g, '_') + '.json'
     C.speed = null; C.speedAt = 0;
     assert.strictEqual(vms.carSpeed(Date.now()), null);
     fs.unlinkSync(path.join(ramDir, 'speed.json'));
+
+    // --- the probe for BMW's map speed limit: what it picks from a catalogue, what it logs ---
+    const probe = require('../vietmap-signs/probe');
+    const cat = { interfaces: {
+        'de.bmw.navigation.SpeedLimitInfo': { fields: { currentSpeedLimit: {}, unit: {} }, broadcasts: { limitChanged: {} }, methods: { setSomething: {} } },
+        'de.bmw.navigation.Position': { fields: { mapMatchedPosition: {}, heading: {} } },
+        'de.bmw.media.Player': { fields: { title: {} } },
+        'de.bmw.kombi.Display': { fields: { brightness: {} } },
+    } };
+    const pc = probe.candidates(cat);
+    assert.deepStrictEqual(pc.open.map((x) => [x.name, x.fields, x.broadcasts]), [
+        ['de.bmw.navigation.SpeedLimitInfo', ['currentSpeedLimit', 'unit'], ['limitChanged']],
+        ['de.bmw.navigation.Position', ['mapMatchedPosition'], []]]);
+    assert(pc.wide.indexOf('de.bmw.kombi.Display') >= 0 && pc.wide.indexOf('de.bmw.media.Player') < 0);
+    const catFile = path.join(T, 'catalog.json'), plog = path.join(T, 'probe.log');
+    fs.writeFileSync(catFile, JSON.stringify(cat));
+    const called = [];
+    const fakeIp = { buildProxy: (cfg) => Promise.resolve({ init: () => Promise.resolve(), subscribeToAvailability: (f) => f(true),
+        callMethod: () => { called.push('method'); return Promise.resolve(); },
+        getValue: (name) => Promise.resolve(name === 'currentSpeedLimit' ? { value: 60 } : null),
+        subscribe: (o) => { if (o.name === 'limitChanged') setTimeout(() => { o.onReceive({ limit: 80 }); o.onReceive({ limit: 80 }); }, 20); return Promise.resolve(); } }) };
+    const opened = await probe.run(plog, path.join(T, 'probe-tmp'), { catalog: catFile, gen: genFake, someip: fakeIp });
+    assert.strictEqual(opened, 2);
+    await sleep(1200);
+    const pl = fs.readFileSync(plog, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l.replace(/^\S+ /, '')));
+    assert(pl.some((l) => l.ev === 'found' && l.iface === 'de.bmw.navigation.SpeedLimitInfo' && l.methods.length === 0));
+    assert.deepStrictEqual(pl.filter((l) => l.ev === 'value' && l.name === 'limitChanged').map((l) => l.value), ['{"limit":80}'], 'each different value once');
+    assert(pl.some((l) => l.ev === 'value' && l.name === 'currentSpeedLimit' && l.value === '{"value":60}'), 'a field read');
+    assert.deepStrictEqual(called, [], 'no method is ever called');
+    // the Store's log tool prints it
+    const printed = require('child_process').execFileSync(process.execPath, [path.join(__dirname, '..', 'vietmap-signs-log', 'print-log.js')],
+        { env: Object.assign({}, process.env, { VMS_RUN: T }), encoding: 'utf8' });
+    assert(/VMS member de\.bmw\.navigation\.SpeedLimitInfo\|limitChanged/.test(printed) && /"limit\\":80/.test(printed), printed.slice(0, 600));
+    // the setting: off by default, on from the app
+    assert.strictEqual(vms.desired(Date.now()).probe, false);
 
     console.log('vietmap-signs: all checks passed');
     process.exit(0);
