@@ -21,10 +21,20 @@ const { Canvas } = require('./kit/canvas');
 const UI = require('./ui');
 const { readStatus, report, RUN_APP, speedStamp } = require('./status');
 
-/** A small file into the helper's folder for this app in RAM; false when it is not there (helper not running). */
+/** A small file into the helper's folder for this app in RAM; false when it cannot be written there. */
 function putRam(name, data) {
     const f = path.join(RUN_APP, name);
     try {
+        fs.writeFileSync(f + '.tmp', data);
+        fs.renameSync(f + '.tmp', f);
+        return true;
+    } catch (e) { return false; }
+}
+/** Into RAM, else (that folder not writable for this app: an older helper) the data folder, which it reads too. */
+function put(name, data, dataDir) {
+    if (putRam(name, data)) return true;
+    try {
+        const f = path.join(dataDir, name);
         fs.writeFileSync(f + '.tmp', data);
         fs.renameSync(f + '.tmp', f);
         return true;
@@ -71,7 +81,7 @@ mgu.run({
             down: () => step(0, UI.STEP),
             reset: () => { keys(editing).forEach((k) => settings.set(k, null)); log.info('sign on ' + editing + ': default place'); repaint(); },
             // a new pairing code: the helper makes it (the phone app then needs the new one)
-            newCode: () => { if (putRam('pair-new', '1')) { log.info('pairing: new code asked'); codeAt = 0; } repaint(); },
+            newCode: () => { if (put('pair-new', '1', ctx.dataDir)) { log.info('pairing: new code asked'); codeAt = 0; } repaint(); },
         };
         ctx.onTab((i) => { page = i; repaint(); });
         // a tap on a picture of the cluster or the HUD: the sign's middle goes there
@@ -118,11 +128,14 @@ mgu.run({
         const previewTick = () => {
             if (page !== 1 || Date.now() - previewAt < (drag ? 80 : 1000)) return;
             previewAt = Date.now();
-            putRam('preview.json', JSON.stringify(Object.assign({ at: new Date().toISOString() }, drag ? { drag: { t: drag.t, x: drag.x, y: drag.y } } : {})));
+            put('preview.json', JSON.stringify(Object.assign({ at: new Date().toISOString() }, drag ? { drag: { t: drag.t, x: drag.x, y: drag.y } } : {})), ctx.dataDir);
         };
         // the pairing code, as the helper gives it (a few times a minute is plenty)
         let code = null, codeAt = 0;
         const readCode = () => {
+            // the helper's status has it (0.6.1 on), else its file in the RAM folder
+            const sc = status && !status.stale && status.pairing && status.pairing.code;
+            if (sc && /^\d{6}$/.test(String(sc))) return String(sc);
             if (Date.now() - codeAt < 3000) return code;
             codeAt = Date.now();
             try { const j = JSON.parse(fs.readFileSync(path.join(RUN_APP, 'pair.json'), 'utf8')); code = /^\d{6}$/.test(String(j.code)) ? String(j.code) : null; } catch (e) { code = null; }
@@ -144,7 +157,7 @@ mgu.run({
             const now = Date.now();
             if (speed === null || now - speedSaved < 250 || !helperNeedsSpeed()) return;
             speedSaved = now;
-            putRam('speed.json', JSON.stringify({ at: new Date(speedAt).toISOString(), kmh: speed }));
+            put('speed.json', JSON.stringify({ at: new Date(speedAt).toISOString(), kmh: speed }), ctx.dataDir);
         };
         ctx.signals.watch('de.bmw.infotainment.vehicle.Vehicle2', '1', {
             statusCarSpeed2: (v) => {

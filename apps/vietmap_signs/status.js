@@ -7,7 +7,7 @@
 const fs = require('fs');
 
 const STATUS = '/run/vietmap-signs/status.json';
-// the helper's folder for this app in RAM (0700, this app's user): what the app writes often, the pairing code
+// the helper's folder for this app in RAM (0770, the user and group this app runs as): what the app writes often, the pairing code
 const RUN_APP = '/run/vietmap-signs/app';
 const STALE_MS = 15000;               // the helper writes every 2 s at least
 

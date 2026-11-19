@@ -29,7 +29,7 @@
  *
  * The app's choices are its own settings file (data/settings.json, written by the kit). The state goes
  * to /run/vietmap-signs/status.json (0644), which the app shows. What changes often goes through RAM,
- * not the app's data folder (flash): this makes /run/vietmap-signs/app (0700, the app's own user), where
+ * not the app's data folder (flash): this makes /run/vietmap-signs/app (0770, the user and group the app runs as), where
  * the app writes preview.json (its Position page is open) and speed.json (the car's speed, only while the
  * status says this has none of its own: speed_own false), and where this puts pair.json (the code) and
  * takes pair-new (a new code wanted). Files there are read without following links, at most 4 KB.
@@ -53,10 +53,11 @@ const cp = require('child_process');
 const dgram = require('dgram');
 const zlib = require('zlib');
 
-const VERSION = '0.6.0';
+const VERSION = '0.6.1';
 const env = (k, d) => (process.env[k] !== undefined && process.env[k] !== '' ? process.env[k] : d);
 const CFG = {
     oap: env('VMS_OAP', '/var/opt/public/oap'),
+    proc: env('VMS_PROC', '/proc'),
     run: env('VMS_RUN', '/run/vietmap-signs'),
     // what stays across restarts (the pairing code): next to the installed versions, written once
     state: env('VMS_STATE', '/var/opt/vietmap-signs'),
@@ -127,13 +128,13 @@ function writeAtomic(p, text, mode) {
 }
 /** A file into a folder someone else owns (the app's): the temporary file made new (never through a
  *  link left there), given to uid, then renamed over the old one. */
-function writeInto(p, text, mode, uid) {
+function writeInto(p, text, mode, uid, gid) {
     const tmp = p + '.tmp';
     try { fs.unlinkSync(tmp); } catch (e) { /* none */ }
     const fd = fs.openSync(tmp, 'wx', mode);
     try {
         fs.writeSync(fd, text);
-        if (uid !== null && uid !== undefined) fs.fchownSync(fd, uid, -1);
+        if (uid !== null && uid !== undefined) fs.fchownSync(fd, uid, gid === null || gid === undefined ? -1 : gid);
     } finally { fs.closeSync(fd); }
     fs.renameSync(tmp, p);
 }
@@ -315,10 +316,40 @@ function desired(now) {
 
 /* ---------------- the app's folder in RAM ---------------- */
 
-const appRun = { dir: null, uid: null, error: null, checkedAt: 0 };
+const appRun = { dir: null, uid: null, gid: null, by: null, error: null, checkedAt: 0, procAt: 0, proc: null };
 /**
- * /run/vietmap-signs/app, the app's own (0700, the owner of its data folder): what the app writes often
- * goes there, not to flash. Made again when missing (the service's /run folder goes at each stop).
+ * The user and group the app's program runs as: a process whose command line or working folder is in
+ * the app's folder (/proc). Its data folder's owner need not be that user (0.6.0 went by the data folder,
+ * and the app could not read the folder made for it). null when the app is not running.
+ */
+function appProcess(app, now) {
+    if (appRun.proc && now - appRun.procAt < 30000 && now >= appRun.procAt) return appRun.proc;
+    appRun.procAt = now;
+    let found = null;
+    let pids = [];
+    try { pids = fs.readdirSync(CFG.proc).filter((d) => /^\d+$/.test(d) && Number(d) !== process.pid); } catch (e) { return null; }
+    const inApp = (s) => !!s && (s === app.root || s.indexOf(app.root + '/') >= 0 || s.indexOf(app.root + '\0') >= 0);
+    for (const pid of pids) {
+        const base = path.join(CFG.proc, pid);
+        let cmd = null, cwd = null;
+        try { cmd = fs.readFileSync(path.join(base, 'cmdline'), 'latin1'); } catch (e) { continue; }
+        try { cwd = fs.readlinkSync(path.join(base, 'cwd')); } catch (e) { /* not ours to see */ }
+        if (!/node/.test(cmd) && !inApp(cwd)) continue;
+        if (!inApp(cmd) && !inApp(cwd)) continue;
+        const st = readText(path.join(base, 'status')) || '';
+        const u = /^Uid:\s+(\d+)/m.exec(st), g = /^Gid:\s+(\d+)/m.exec(st);
+        if (!u || !g || Number(u[1]) === 0) continue;
+        found = { uid: Number(u[1]), gid: Number(g[1]), pid: Number(pid) };
+        break;
+    }
+    appRun.proc = found;
+    return found;
+}
+
+/**
+ * /run/vietmap-signs/app, the app's own (0770, the user and group its program runs as; before it runs,
+ * its data folder's): what the app writes often goes there, not to flash. Made again when missing
+ * (the service's /run folder goes at each stop).
  */
 function appRunDir(now) {
     const app = findApp(now);
@@ -327,15 +358,21 @@ function appRunDir(now) {
     appRun.checkedAt = now;
     const dir = path.join(CFG.run, 'app');
     try {
-        const owner = fs.statSync(path.join(app.root, 'data'));
+        const proc = appProcess(app, now);
+        const data = fs.statSync(path.join(app.root, 'data'));
+        const owner = proc ? { uid: proc.uid, gid: proc.gid } : { uid: data.uid, gid: data.gid };
         let st = null;
         try { st = fs.lstatSync(dir); } catch (e) { /* none yet */ }
         if (st && !st.isDirectory()) { fs.unlinkSync(dir); st = null; }
-        if (!st) fs.mkdirSync(dir, 0o700);
+        if (!st) fs.mkdirSync(dir, 0o770);
         st = fs.lstatSync(dir);
         if (st.uid !== owner.uid || st.gid !== owner.gid) fs.chownSync(dir, owner.uid, owner.gid);
-        if ((st.mode & 0o777) !== 0o700) fs.chmodSync(dir, 0o700);
-        appRun.dir = dir; appRun.uid = owner.uid; appRun.error = null;
+        if ((st.mode & 0o777) !== 0o770) fs.chmodSync(dir, 0o770);
+        if (appRun.uid !== owner.uid || appRun.gid !== owner.gid) {
+            log('app folder ' + dir + ': ' + owner.uid + ':' + owner.gid + (proc ? ' (the app\'s program, pid ' + proc.pid + ')' : ' (its data folder)'));
+            pair.written = null;      // the code again, as the new owner's
+        }
+        appRun.dir = dir; appRun.uid = owner.uid; appRun.gid = owner.gid; appRun.by = proc ? 'process' : 'data'; appRun.error = null;
     } catch (e) {
         if (appRun.error !== e.message) log('app folder ' + dir + ': ' + e.message);
         appRun.dir = null; appRun.error = e.message;
@@ -419,16 +456,19 @@ function setCode(code, why) {
 function pairToApp(now) {
     const dir = appRun.dir;
     if (!dir || !CFG.pairing) return;
-    const ask = readSmall(path.join(dir, 'pair-new'));
-    if (ask) {
-        try { fs.unlinkSync(path.join(dir, 'pair-new')); } catch (e) { /* gone */ }
+    // the ask: in RAM, or (the app could not write there) in its data folder
+    const app = findApp(now);
+    const asks = [path.join(dir, 'pair-new')].concat(app ? [path.join(app.root, 'data', 'pair-new')] : []);
+    const ask = asks.filter((f) => readSmall(f));
+    if (ask.length) {
+        ask.forEach((f) => { try { fs.unlinkSync(f); } catch (e) { /* gone */ } });
         if (now - pair.newAt > 3000 || now < pair.newAt) { pair.newAt = now; setCode(newCode(), 'asked in the app'); }
     }
     const f = path.join(dir, 'pair.json');
     const want = JSON.stringify({ code: pairCode(), made: pair.made });
     if (pair.written === want && fs.existsSync(f)) return;
     try {
-        writeInto(f, want + '\n', 0o600, appRun.uid);
+        writeInto(f, want + '\n', 0o640, appRun.uid, appRun.gid);
         pair.written = want;
     } catch (e) { log('pairing code to the app: ' + e.message); }
 }
@@ -781,7 +821,7 @@ function tick() {
     applyLayers({ limit: s.limit, map: s.map, hud: s.hud, warn: s.over });
     last = { shown: ['map', 'hud'].filter((t) => s[t].visible), why: s.why, limit: s.limit };
     const key = JSON.stringify([last, s.bmw, renderer, fw.error, s.d, s.placing, s.reading, s.over, s.woc.map, s.woc.hud, phone.from, phone.bad, phone.ignored,
-        screen.limit, screen.error, screen.shots, cam.limit, cam.signs, cam.ready, cam.error, cam.up, ownSpeed(now) !== null, pair.refused, appRun.dir]);
+        screen.limit, screen.error, screen.shots, cam.limit, cam.signs, cam.ready, cam.error, cam.up, ownSpeed(now) !== null, pair.refused, appRun.dir, appRun.uid, pair.code]);
     if (key !== lastKey || now - lastWrite > 2000) { writeStatus(s, now); lastKey = key; lastWrite = now; }
     return s;
 }
@@ -804,7 +844,9 @@ function writeStatus(s, now) {
         // the app writes the car's speed only while this is false (this reads it itself otherwise)
         speed_own: ownSpeed(now) !== null,
         app_dir: appRun.dir, app_dir_error: appRun.error,
-        pairing: { on: CFG.pairing, refused: pair.refused, from: pair.from, ago_ms: pair.at ? now - pair.at : null, error: pair.error },
+        // the code: also here, where the app surely reads it (the status is on the unit only, in RAM)
+        pairing: { on: CFG.pairing, code: CFG.pairing ? pairCode() : null, refused: pair.refused, from: pair.from, ago_ms: pair.at ? now - pair.at : null, error: pair.error },
+        app_dir_owner: appRun.dir ? { uid: appRun.uid, gid: appRun.gid, by: appRun.by } : null,
         camera: { on: s.d.camera, ready: cam.ready, error: cam.error, up: cam.up, limit: cam.limit,
             at: cam.at ? new Date(cam.at).toISOString() : null, km: Math.round(cam.km * 10) / 10, seen: cam.signs,
             events: cam.events, last_event: cam.lastEventAt ? new Date(cam.lastEventAt).toISOString() : null },
@@ -894,6 +936,6 @@ if (require.main === module) {
 module.exports = {
     VERSION, CFG, SIZES, drawSign, desired, findApp, wocStatus, geometry, decide, tick, parsePacket, allowedSender,
     ensureRules, removeRules, ourRules, listen, phone, renderer, layers, _last: () => last, _cam: cam, BLINK,
-    _reset: () => { appCache = null; appScanAt = 0; appRun.dir = null; appRun.checkedAt = 0; },
+    _reset: () => { appCache = null; appScanAt = 0; appRun.dir = null; appRun.checkedAt = 0; appRun.proc = null; appRun.procAt = 0; },
     appRunDir, carSpeed, preview, previewDrag, ownSpeed, pairCode, setCode, pair, appRun, readSmall, writeInto,
 };

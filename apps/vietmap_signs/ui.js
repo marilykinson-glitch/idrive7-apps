@@ -118,7 +118,7 @@ function drawPairing(cv, G, t, v, act) {
     // how to
     const lx = 820, steps = [
         'On the phone, open VietMap Live Helper',
-        'Tap Pair with the car',
+        'Scroll to Pair with the car (or tap Enter code)',
         'Type these 6 digits, tap Save',
         'Done: only that phone is listened to',
     ];

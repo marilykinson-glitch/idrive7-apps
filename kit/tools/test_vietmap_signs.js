@@ -11,7 +11,7 @@ const path = require('path');
 const dgram = require('dgram');
 
 const T = fs.mkdtempSync(path.join(os.tmpdir(), 'vms-'));
-const D = { oap: path.join(T, 'oap'), run: path.join(T, 'run'), wocRun: path.join(T, 'wocrun'), bin: path.join(T, 'bin'), state: path.join(T, 'state') };
+const D = { proc: path.join(T, 'proc'), oap: path.join(T, 'oap'), run: path.join(T, 'run'), wocRun: path.join(T, 'wocrun'), bin: path.join(T, 'bin'), state: path.join(T, 'state') };
 Object.keys(D).forEach((k) => fs.mkdirSync(D[k], { recursive: true }));
 
 // nft: the input chain as a file of rules, "-a list" with handles, insert, delete by handle
@@ -55,7 +55,7 @@ module.exports = { ClusterRender, calls };
 
 const PORT = 18000 + (process.pid % 2000);
 Object.assign(process.env, {
-    VMS_OAP: D.oap, VMS_RUN: D.run, VMS_STATE: D.state, VMS_WOC_RUN: D.wocRun, VMS_NFT: path.join(D.bin, 'nft'), VMS_CR_CLIENT: FAKE_CR,
+    VMS_PROC: D.proc, VMS_OAP: D.oap, VMS_RUN: D.run, VMS_STATE: D.state, VMS_WOC_RUN: D.wocRun, VMS_NFT: path.join(D.bin, 'nft'), VMS_CR_CLIENT: FAKE_CR,
     VMS_PORT: String(PORT), VMS_LOOPBACK: '1', VMS_PHONE_STALE_MS: '600', VMS_RULE_MS: '100000000',
     VMS_GRABBER: path.join(T, 'no-grabber-yet'), VMS_SCREEN_MS: '50', VMS_XDG_RUNTIME_DIR: '/run/wayland-test',
 });
@@ -473,7 +473,7 @@ fs.mkdirSync(out); fs.writeFileSync(out + '/' + i.replace(/\\./g, '_') + '.json'
     vms.tick();
     const ramDir = path.join(D.run, 'app');
     const rst = fs.lstatSync(ramDir);
-    assert(rst.isDirectory() && (rst.mode & 0o777) === 0o700, 'the app\'s RAM folder, 0700');
+    assert(rst.isDirectory() && (rst.mode & 0o777) === 0o770, 'the app\'s RAM folder, 0770');
     assert.strictEqual(rst.uid, fs.statSync(path.join(D.oap, 'oap_12301', 'data')).uid);
     assert.strictEqual(status().app_dir, ramDir);
     // the helper has its own speed (100 above): the app is told not to write it
@@ -516,6 +516,33 @@ fs.mkdirSync(out); fs.writeFileSync(out + '/' + i.replace(/\\./g, '_') + '.json'
     vms.tick();
     assert(fs.existsSync(ramDir), 'made again');
 
+    // --- the folder owned by the user the app's program runs as (not its data folder's owner) ---
+    const pdir = path.join(D.proc, '4242');
+    fs.mkdirSync(pdir, { recursive: true });
+    fs.writeFileSync(path.join(pdir, 'cmdline'), ['/usr/bin/node', path.join(D.oap, 'oap_12301', 'source', 'javascript', 'app.js')].join('\0') + '\0');
+    fs.writeFileSync(path.join(pdir, 'status'), 'Name:\tnode\nUid:\t3456\t3456\t3456\t3456\nGid:\t7890\t7890\t7890\t7890\n');
+    fs.mkdirSync(path.join(D.proc, '99'), { recursive: true });       // someone else's
+    fs.writeFileSync(path.join(D.proc, '99', 'cmdline'), '/usr/bin/node\0/somewhere/else.js\0');
+    fs.writeFileSync(path.join(D.proc, '99', 'status'), 'Uid:\t1111\t1111\t1111\t1111\nGid:\t1111\t1111\t1111\t1111\n');
+    vms._reset();
+    vms.tick();
+    let ost = fs.statSync(ramDir);
+    assert.deepStrictEqual([ost.uid, ost.gid, ost.mode & 0o777], [3456, 7890, 0o770], 'the app\'s program\'s user and group');
+    assert.deepStrictEqual(status().app_dir_owner, { uid: 3456, gid: 7890, by: 'process' });
+    const pst = fs.statSync(path.join(ramDir, 'pair.json'));
+    assert.deepStrictEqual([pst.uid, pst.gid, pst.mode & 0o777], [3456, 7890, 0o640], 'the code: that user\'s, its group can read it');
+    assert(/^\d{6}$/.test(status().pairing.code), 'the code in the status too');
+    // a new code asked through the data folder (an app that cannot write the RAM folder)
+    const codeBefore = status().pairing.code;
+    fs.writeFileSync(path.join(D.oap, 'oap_12301', 'data', 'pair-new'), '1');
+    vms.pair.newAt = 0;
+    vms.tick();
+    assert.notStrictEqual(status().pairing.code, codeBefore, 'a new code asked in the data folder');
+    assert(!fs.existsSync(path.join(D.oap, 'oap_12301', 'data', 'pair-new')));
+    fs.rmSync ? fs.rmSync(D.proc, { recursive: true }) : null;
+    vms._reset();
+    vms.tick();
+
     // --- pairing: the code kept, given to the app, a phone without it refused ---
     const code = vms.pairCode();
     assert(/^[1-9]\d{5}$/.test(code), 'six digits: ' + code);
@@ -538,6 +565,7 @@ fs.mkdirSync(out); fs.writeFileSync(out + '/' + i.replace(/\\./g, '_') + '.json'
     vms.pair.strikes = {};
     // a new code, asked in the app: the old one stops working
     fs.writeFileSync(path.join(ramDir, 'pair-new'), '1');
+    vms.pair.newAt = 0;
     vms.tick();
     const code2 = JSON.parse(fs.readFileSync(path.join(ramDir, 'pair.json'), 'utf8')).code;
     assert.notStrictEqual(code2, code, 'a new code');
