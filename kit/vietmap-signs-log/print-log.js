@@ -32,7 +32,7 @@ all.forEach((l) => {
     let j = null;
     try { j = JSON.parse(l.replace(/^\S+ /, '')); } catch (e) { /* a plain line */ }
     if (!j || j.ev !== 'value') { head.push(l); return; }
-    const k = j.iface + '|' + j.name;
+    const k = j.iface + '|' + j.name + ' @ instance ' + (j.inst === undefined ? '?' : j.inst);
     if (!values[k]) { values[k] = []; order.push(k); }
     values[k].push(l);
 });
@@ -42,6 +42,6 @@ head.slice(starts.length ? starts[starts.length - 1] : 0).forEach((l) => out('pr
 order.forEach((k) => {
     const v = values[k], show = v.length <= 20 ? v : v.slice(0, 6).concat(v.slice(-14));
     out('member', k + ' (' + v.length + ' gia tri khac nhau)');
-    show.forEach((l) => out('value', l.replace(/"iface":"[^"]*","name":"[^"]*",/, '')));
+    show.forEach((l) => out('value', l.replace(/"iface":"[^"]*",("inst":"[^"]*",)?"name":"[^"]*",/, '')));
 });
 out('==', 'het (' + n + ' dong)');

@@ -624,10 +624,26 @@ fs.mkdirSync(out); fs.writeFileSync(out + '/' + i.replace(/\\./g, '_') + '.json'
     assert.deepStrictEqual(pl.filter((l) => l.ev === 'value' && l.name === 'limitChanged').map((l) => l.value), ['{"limit":80}'], 'each different value once');
     assert(pl.some((l) => l.ev === 'value' && l.name === 'currentSpeedLimit' && l.value === '{"value":60}'), 'a field read');
     assert.deepStrictEqual(called, [], 'no method is ever called');
+    // two instances of one service saying different things: two sources in the log, never one
+    const cat2 = path.join(T, 'catalog2.json'), plog2 = path.join(T, 'run2'), gen2 = path.join(T, 'gen2.js');
+    fs.mkdirSync(plog2);
+    fs.writeFileSync(cat2, JSON.stringify({ interfaces: { 'de.bmw.navigation.SpeedLimitInfo': { fields: { currentSpeedLimit: {} } } } }));
+    fs.writeFileSync(gen2, "const fs = require('fs'); const a = process.argv.slice(2); const m = JSON.parse(fs.readFileSync(a[1], 'utf8')); const i = Object.keys(m.proxies)[0];"
+        + "fs.mkdirSync(a[3]); fs.writeFileSync(a[3] + '/' + i.split('.').join('_') + '.json', JSON.stringify({ name: i, instances: { 1: {}, 2: {} } }));");
+    const twoIp = { buildProxy: (cfg, inst) => Promise.resolve({ init: () => Promise.resolve(), subscribeToAvailability: () => {},
+        getValue: () => Promise.resolve({ limit: inst === '1' ? 60 : 80 }), subscribe: () => Promise.resolve() }) };
+    assert.strictEqual(await probe.run(path.join(plog2, 'probe.log'), path.join(T, 'probe-tmp2'), { catalog: cat2, gen: gen2, someip: twoIp }), 2);
+    await sleep(1200);
+    const two = fs.readFileSync(path.join(plog2, 'probe.log'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l.replace(/^\S+ /, '')));
+    assert.deepStrictEqual(two.filter((l) => l.ev === 'value').map((l) => [l.inst, l.value]).sort(), [['1', '{"limit":60}'], ['2', '{"limit":80}']], 'each instance its own line');
+    assert(two.some((l) => l.ev === 'instances' && l.all.length === 2));
+    const printed2 = require('child_process').execFileSync(process.execPath, [path.join(__dirname, '..', 'vietmap-signs-log', 'print-log.js')],
+        { env: Object.assign({}, process.env, { VMS_RUN: plog2 }), encoding: 'utf8' });
+    assert(/currentSpeedLimit @ instance 1/.test(printed2) && /currentSpeedLimit @ instance 2/.test(printed2), printed2);
     // the Store's log tool prints it
     const printed = require('child_process').execFileSync(process.execPath, [path.join(__dirname, '..', 'vietmap-signs-log', 'print-log.js')],
         { env: Object.assign({}, process.env, { VMS_RUN: T }), encoding: 'utf8' });
-    assert(/VMS member de\.bmw\.navigation\.SpeedLimitInfo\|limitChanged/.test(printed) && /"limit\\":80/.test(printed), printed.slice(0, 600));
+    assert(/VMS member de\.bmw\.navigation\.SpeedLimitInfo\|limitChanged @ instance/.test(printed) && /"limit\\":80/.test(printed), printed.slice(0, 600));
     // the setting: off by default, on from the app
     assert.strictEqual(vms.desired(Date.now()).probe, false);
 

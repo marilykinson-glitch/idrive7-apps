@@ -6,7 +6,7 @@
  *
  * It searches the unit's SOME/IP catalogue for every interface and member whose name speaks of a speed
  * limit, a traffic sign, the electronic horizon, road attributes or map matching, writes what it found
- * (probe.log, in RAM), opens each as root and writes every different value that comes, at most one line
+ * (probe.log, in RAM), opens each instance of each as root (a value line names its instance) and writes every different value that comes, at most one line
  * per member every 2 s. The log goes to the Store's log with the tool vietmap-signs-log; the member whose
  * value follows the road's limit while driving is the one to use.
  *
@@ -75,11 +75,12 @@ function run(logFile, tmp, o) {
     try { fs.mkdirSync(tmp); } catch (e) { /* there */ }
     const held = [];
     const last = {}, lastAt = {}, pending = {};
-    const got = (iface, name, kind) => (v) => {
-        const key = iface + '|' + name, s = cut(JSON.stringify(v === undefined ? null : v), 1500), now = Date.now();
+    // each instance of a service is a source of its own: never one value line for two of them
+    const got = (iface, name, kind, inst) => (v) => {
+        const key = iface + '|' + inst + '|' + name, s = cut(JSON.stringify(v === undefined ? null : v), 1500), now = Date.now();
         if (s === last[key]) return;
         last[key] = s;
-        const write = () => { lastAt[key] = Date.now(); pending[key] = null; say({ ev: 'value', iface, name, kind, value: last[key] }); };
+        const write = () => { lastAt[key] = Date.now(); pending[key] = null; say({ ev: 'value', iface, inst: String(inst), name, kind, value: last[key] }); };
         // at most one line per member every 2 s: the newest when the time is up
         if (now - (lastAt[key] || 0) >= 2000) write();
         else if (!pending[key]) pending[key] = setTimeout(write, 2000 - (now - lastAt[key]));
@@ -102,7 +103,8 @@ function run(logFile, tmp, o) {
             say({ ev: 'proxy', iface: x.name, ok: false, note: 'description: ' + cut(String(e.stderr || '') + ' ' + e.message, 300) });
             return Promise.resolve();
         }
-        const insts = Object.keys(cfg.instances || { 1: 1 }).slice(0, 3);
+        const allInsts = Object.keys(cfg.instances || { 1: 1 }), insts = allInsts.slice(0, 6);
+        if (allInsts.length > 1) say({ ev: 'instances', iface: x.name, all: allInsts, opened: insts });
         let chain = Promise.resolve();
         insts.forEach((inst) => {
             chain = chain.then(() => within(someip.buildProxy(cfg, String(inst)).then((p) => p.init().then(() => p)), 6000, 'proxy')).then((p) => {
@@ -111,8 +113,8 @@ function run(logFile, tmp, o) {
                 say({ ev: 'proxy', iface: x.name, inst, ok: true });
                 try { p.subscribeToAvailability((a) => say({ ev: 'available', iface: x.name, inst, up: !!a })); } catch (e) { /* older binding */ }
                 x.fields.concat(x.broadcasts).forEach((name, k) => {
-                    const kind = k < x.fields.length ? 'field' : 'broadcast', on = got(x.name, name, kind);
-                    try { Promise.resolve(p.subscribe({ name, onReceive: on })).catch((e) => say({ ev: 'note', text: x.name + '.' + name + ' subscribe: ' + cut(e && e.message || e, 160) })); } catch (e) { say({ ev: 'note', text: x.name + '.' + name + ' subscribe: ' + cut(e.message, 160) }); }
+                    const kind = k < x.fields.length ? 'field' : 'broadcast', on = got(x.name, name, kind, inst);
+                    try { Promise.resolve(p.subscribe({ name, onReceive: on })).catch((e) => say({ ev: 'note', text: x.name + '.' + name + ' subscribe (instance ' + inst + '): ' + cut(e && e.message || e, 160) })); } catch (e) { say({ ev: 'note', text: x.name + '.' + name + ' subscribe (instance ' + inst + '): ' + cut(e.message, 160) }); }
                     if (kind === 'field') {
                         const get = () => { try { Promise.resolve(p.getValue(name, 3000)).then(on).catch(() => {}); } catch (e) { /* no getter */ } };
                         setTimeout(get, 800 + k * 50);
