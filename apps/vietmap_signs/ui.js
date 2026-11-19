@@ -9,11 +9,14 @@
  * v = { on, show, shows: [[key, label]], limit, phoneLimit, pending, lines: [{ text, kind }], note, noteKind,
  *       page (0: the sign, 1: Position), editing ('map' | 'hud'), status (the helper's), map / hud: geometry() }
  *
- * The Position page: pictures of the cluster's map area and the HUD with the sign on each; a tap on
- * one puts the sign's middle there (hit()), the buttons move the one being edited by STEP pixels.
+ * The Position page: pictures of the cluster's map area and the HUD with the sign on each; a finger on
+ * the sign drags it (main.js), a tap elsewhere on a picture puts the sign's middle there (hit()), the
+ * buttons move the one being edited by STEP pixels.
+ *
+ * The Pairing page: the code the phone app needs (v.code, from the helper), how to enter it, a new code.
  */
 const W = 1600, H = 520;
-const TABS = ['VietMap signs', 'Position'];
+const TABS = ['VietMap signs', 'Position', 'Pairing'];
 const STEP = 10;
 // the sign's sizes and default places, as the helper has them (kit/vietmap-signs), for before it reports
 const SIZES = { small: { map: 96, hud: 64 }, medium: { map: 128, hud: 80 }, large: { map: 160, hud: 100 } };
@@ -59,7 +62,7 @@ function drawPosition(cv, G, t, v, act) {
     const go = t.go || '#2fd27a', acc = t.accent || '#81c4ff';
     const st = v.status || {};
     const limit = v.limit || v.phoneLimit || 60;
-    cv.text('Tap a picture to put the sign there; the buttons move it ' + STEP + ' px', 64, G.TOP + 36, 18, t.dim, { font: 'label' });
+    cv.text(v.dragging ? 'Dragging · let go to save' : 'Drag the sign with a finger, or tap a picture to put it there', 64, G.TOP + 36, 18, v.dragging ? acc : t.dim, { font: 'label' });
     ['map', 'hud'].forEach((tg) => {
         const p = PICS[tg], T = TARGETS[tg], g = v[tg], on = v.editing === tg;
         const w = T.w * p.k, h = T.h * p.k;
@@ -94,10 +97,51 @@ function drawPosition(cv, G, t, v, act) {
     return cv;
 }
 
+/** The code in two groups of three, big: what the phone app asks for. */
+function drawPairing(cv, G, t, v, act) {
+    const go = t.go || '#2fd27a', acc = t.accent || '#81c4ff';
+    const st = v.status || {}, pr = st.pairing || {};
+    const cx = 420;
+    cv.text('Pairing code', cx, G.TOP + 70, 22, t.dim, { align: 'center', font: 'label' });
+    if (v.code) {
+        cv.roundRect(cx - 270, G.TOP + 96, 540, 150, 18, G.withAlpha('#ffffff', 0.06));
+        cv.text(v.code.slice(0, 3) + ' ' + v.code.slice(3), cx, G.TOP + 210, 104, t.text, { align: 'center', font: 'bold', spacing: 6 });
+    } else {
+        cv.text(st && !st.stale ? 'Waiting for the helper' : 'Helper not running', cx, G.TOP + 190, 30, t.warn || '#d29922', { align: 'center', font: 'label' });
+    }
+    const p = st.phone || {};
+    const unpaired = v.unpaired;
+    const state = unpaired ? { text: 'A phone is sending with a wrong code: ' + pr.from, kind: 'warn' }
+        : p.at && p.ago_ms < 5000 ? { text: 'Paired · the phone ' + p.from + ' is sending', kind: 'go' }
+            : { text: 'No phone sending now', kind: 'dim' };
+    cv.text(state.text, cx, G.TOP + 290, 20, state.kind === 'warn' ? (t.warn || '#d29922') : state.kind === 'go' ? go : t.dim, { align: 'center', font: 'label' });
+    // how to
+    const lx = 820, steps = [
+        'On the phone, open VietMap Live Helper',
+        'Tap Pair with the car',
+        'Type these 6 digits, tap Save',
+        'Done: only that phone is listened to',
+    ];
+    cv.text('How to pair', lx, G.TOP + 70, 22, acc, { font: 'bold' });
+    steps.forEach((s, i) => {
+        const y = G.TOP + 118 + i * 52;
+        cv.circle(lx + 16, y - 7, 16, G.withAlpha(acc, 0.22));
+        cv.text(String(i + 1), lx + 16, y, 18, t.text, { align: 'center', font: 'bold' });
+        cv.text(s, lx + 46, y, 20, t.text, { font: 'label' });
+    });
+    G.button(cv, t, lx, G.TOP + 340, 360, 54, 'New code', act.newCode || (() => {}), { key: 'vmsNew' });
+    cv.text('A new code: the phone needs it typed again', lx, G.TOP + 420, 16, t.dim, { font: 'label' });
+    return cv;
+}
+
 function draw(cv, G, t, v, act) {
     act = act || {};
     cv.clear(t.bg);
     G.frame(cv, t, TABS, v.page || 0, []);
+    if (v.page === 2) {
+        G.panel(cv, t, 24, G.TOP, W - 48, G.BOTTOM - G.TOP, null);
+        return drawPairing(cv, G, t, v, act);
+    }
     if (v.page === 1) {
         G.panel(cv, t, 24, G.TOP, W - 48, G.BOTTOM - G.TOP, null);
         return drawPosition(cv, G, t, v, act);

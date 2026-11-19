@@ -568,6 +568,12 @@ async function runInner(impl) {
         onTab(fn) { display.onTab = fn; },
         /** onTap(fn): fn(x, y) for a tap on the page (app drawing px), where the kit runs the screen. */
         onTap(fn) { display.onTap = fn; },
+        /**
+         * onDrag(fn): fn(phase, x, y) for a finger on the page (app drawing px), where the kit runs the screen:
+         * 'start' where it went down (return true to take it: it then is no tap unless it hardly moved), 'move'
+         * as it moves, 'end' where it came up, or 'cancel' when it came up without moving (the tap follows).
+         */
+        onDrag(fn) { display.onDrag = fn; },
         /** Show a sheet (sheet.js) over the page; false where it can't be (software path, other renderers). */
         sheet(sh) { return display.openSheet(sh); },
         /** hideButton(id): leave bar button id out where the kit runs the screen (its job is on the page there). */

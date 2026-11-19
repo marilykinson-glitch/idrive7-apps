@@ -7,6 +7,8 @@
 const fs = require('fs');
 
 const STATUS = '/run/vietmap-signs/status.json';
+// the helper's folder for this app in RAM (0700, this app's user): what the app writes often, the pairing code
+const RUN_APP = '/run/vietmap-signs/app';
 const STALE_MS = 15000;               // the helper writes every 2 s at least
 
 function readStatus(file) {
@@ -62,7 +64,11 @@ function report(s, want, bmw) {
     if (s.stale) lines.push({ text: 'Helper not answering', kind: 'warn' });
     else lines.push({ text: 'Helper running · ' + s.tool, kind: 'dim' });
     const p = s.phone || {}, sc = s.screen || {};
-    if (p.at) lines.push({ text: 'Phone: ' + p.from + ' · ' + ago(p.ago_ms), kind: p.ago_ms < 5000 ? 'go' : 'warn' });
+    const pr = s.pairing || {};
+    // a phone sending with no code or the wrong one, lately, and none with the right one since
+    const unpaired = pr.on && pr.refused && pr.ago_ms !== null && pr.ago_ms < 10000 && !(p.at && p.ago_ms < pr.ago_ms);
+    if (unpaired) lines.push({ text: 'Phone: ' + pr.from + ' · wrong pairing code', kind: 'warn' });
+    else if (p.at) lines.push({ text: 'Phone: ' + p.from + ' · ' + ago(p.ago_ms), kind: p.ago_ms < 5000 ? 'go' : 'warn' });
     else if (!sc.on) lines.push({ text: 'Phone: not connected yet', kind: 'warn' });
     if (sc.on) {
         if (sc.reading) {
@@ -96,9 +102,10 @@ function report(s, want, bmw) {
     else if (s.renderer && s.renderer.error && !(s.renderer.installed === false)) { note = s.renderer.error; noteKind = 'warn'; }
     else if (s.firewall && s.firewall.error) { note = 'Firewall: ' + s.firewall.error; noteKind = 'warn'; }
     else if (shown.length) { note = shown.length > 1 ? 'Shown on the cluster and the HUD' : shown[0] === 'map' ? 'Shown on the cluster' : 'Shown on the HUD'; noteKind = 'go'; }
+    else if (unpaired) { note = 'Type the pairing code (Pairing tab) into the phone app'; noteKind = 'warn'; }
     else note = WHY[s.why] || s.why || '';
     if (/install/i.test(note || '')) noteKind = 'warn';
-    return { limit: s.limit || null, phoneLimit: p.limit || null, source: s.source || null, lines, note, noteKind, pending: !!pending, bmwView: bmw && bmw.view };
+    return { unpaired: !!unpaired, limit: s.limit || null, phoneLimit: p.limit || null, source: s.source || null, lines, note, noteKind, pending: !!pending, bmwView: bmw && bmw.view };
 }
 
-module.exports = { readStatus, report, bmwFrom, STATUS, STALE_MS, WHY };
+module.exports = { readStatus, report, bmwFrom, STATUS, RUN_APP, STALE_MS, WHY };

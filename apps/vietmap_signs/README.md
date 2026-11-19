@@ -48,3 +48,17 @@ the car's Wi-Fi interfaces while it runs (one tagged firewall rule each, removed
 removed) and patches nothing.
 
 Tests: `node kit/tools/test_vietmap_signs.js` (the helper against a made-up head unit).
+
+## Pairing, and what goes to flash (0.6.0)
+
+- **Pairing**: the helper makes a 6-digit code once (kept in `/var/opt/vietmap-signs/pair.json`, root
+  only) and gives it to the app; the third tab, Pairing, shows it. Type it into the phone app
+  (Trình hỗ trợ VietMap Live → Ghép đôi với xe). A datagram with no code or another one is answered
+  `"paired":false` and changes nothing; a sender with 20 wrong codes in a minute is not listened to for
+  a minute. "New code" makes another one (the phone needs it typed again).
+- **RAM, not flash**: the helper makes `/run/vietmap-signs/app` (0700, the app's user). The app writes
+  `preview.json` there while Position shows, and the car's speed (`speed.json`) only while the helper
+  reports it has none of its own (`speed_own` false in its status: it reads the speed itself, as root).
+  Only the settings (on a change) go to the app's data folder.
+- **Position**: a finger on the sign in a picture drags it; the cluster and the HUD follow at once (the
+  place goes through `preview.json`), and it is saved once, when the finger comes up.

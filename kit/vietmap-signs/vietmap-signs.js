@@ -9,8 +9,12 @@
  *
  * The phone app (android/vmsign) reads the number in VietMap Live's speed bubble and sends it over the
  * car's Wi-Fi, a small JSON datagram on UDP 8471 at each change and once a second:
- *     {"t":"vms","v":1,"seq":12,"limit":60}          limit 0: no sign
- * This answers each one to its sender: {"t":"vms-ack","v":1,"seq":12,"car":"0.1.0","shown":["map"],"why":""}.
+ *     {"t":"vms","v":1,"seq":12,"limit":60,"code":"482915"}          limit 0: no sign
+ * This answers each one to its sender: {"t":"vms-ack","v":1,"seq":12,"car":"0.6.0","paired":true,"shown":["map"],"why":""}.
+ * The code is the pairing code: six digits made here once (kept in /var/opt/vietmap-signs/pair.json,
+ * root only), shown by the app (it gets it in its own folder in /run, below) and typed into the phone
+ * app once. A datagram without it is answered {"paired":false,"why":"wrong code"} and changes nothing;
+ * a sender with 20 wrong codes in a minute is not listened to for a minute.
  * The unit's firewall (table ip filter, input) drops what it does not accept, so while this runs one
  * rule per interface (wlan_bridge, the car's own Wi-Fi; wlan0, a phone hotspot the car is on) accepts
  * the port, tagged "vietmap-signs", checked every 30 s and removed at a stop and at the Store's removal.
@@ -24,7 +28,11 @@
  * BMW's displayed speed limit to its data/bmw_sign.json while it runs).
  *
  * The app's choices are its own settings file (data/settings.json, written by the kit). The state goes
- * to /run/vietmap-signs/status.json (0644), which the app shows.
+ * to /run/vietmap-signs/status.json (0644), which the app shows. What changes often goes through RAM,
+ * not the app's data folder (flash): this makes /run/vietmap-signs/app (0700, the app's own user), where
+ * the app writes preview.json (its Position page is open) and speed.json (the car's speed, only while the
+ * status says this has none of its own: speed_own false), and where this puts pair.json (the code) and
+ * takes pair-new (a new code wanted). Files there are read without following links, at most 4 KB.
  *
  *   node vietmap-signs.js run          the service (vietmap-signs.service)
  *   node vietmap-signs.js deactivate   the firewall rules removed, for the Store's removal
@@ -35,6 +43,7 @@
  * Inter Bold (OFL-Inter.txt).
  */
 const fs = require('fs');
+const crypto = require('crypto');
 const jpeg = require('./jpeg');
 const signread = require('./signread');
 const camera = require('./camera');
@@ -44,11 +53,14 @@ const cp = require('child_process');
 const dgram = require('dgram');
 const zlib = require('zlib');
 
-const VERSION = '0.5.2';
+const VERSION = '0.6.0';
 const env = (k, d) => (process.env[k] !== undefined && process.env[k] !== '' ? process.env[k] : d);
 const CFG = {
     oap: env('VMS_OAP', '/var/opt/public/oap'),
     run: env('VMS_RUN', '/run/vietmap-signs'),
+    // what stays across restarts (the pairing code): next to the installed versions, written once
+    state: env('VMS_STATE', '/var/opt/vietmap-signs'),
+    pairing: env('VMS_PAIRING', '1') !== '0',
     port: Number(env('VMS_PORT', 8471)),
     ifaces: env('VMS_IFACES', 'wlan_bridge,wlan0').split(',').map((s) => s.trim()).filter(Boolean),
     nft: env('VMS_NFT', 'nft'),
@@ -91,9 +103,38 @@ function log(msg) { process.stdout.write(new Date().toISOString() + ' ' + msg + 
 function readText(p) { try { return fs.readFileSync(p, 'utf8'); } catch (e) { return null; } }
 function readJson(p) { const t = readText(p); try { return t === null ? null : JSON.parse(t); } catch (e) { return null; } }
 function mtime(p) { try { return fs.statSync(p).mtime.getTime(); } catch (e) { return 0; } }
+/** A small file in a folder someone else can write: never through a link, at most 4 KB; { text, mtime } or null. */
+function readSmall(p) {
+    let fd = -1;
+    try {
+        fd = fs.openSync(p, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
+        const st = fs.fstatSync(fd);
+        if (!st.isFile() || st.size > 4096) return null;
+        const b = Buffer.alloc(st.size);
+        const n = st.size ? fs.readSync(fd, b, 0, st.size, 0) : 0;
+        return { text: b.slice(0, n).toString('utf8'), mtime: st.mtime.getTime() };
+    } catch (e) { return null; } finally { if (fd >= 0) try { fs.closeSync(fd); } catch (e) { /* closed */ } }
+}
+function readSmallJson(p) {
+    const r = readSmall(p);
+    if (!r) return null;
+    try { const j = JSON.parse(r.text); return j && typeof j === 'object' ? { j, mtime: r.mtime } : null; } catch (e) { return null; }
+}
 function writeAtomic(p, text, mode) {
     const tmp = p + '.tmp';
     fs.writeFileSync(tmp, text, { mode: mode || 0o644 });
+    fs.renameSync(tmp, p);
+}
+/** A file into a folder someone else owns (the app's): the temporary file made new (never through a
+ *  link left there), given to uid, then renamed over the old one. */
+function writeInto(p, text, mode, uid) {
+    const tmp = p + '.tmp';
+    try { fs.unlinkSync(tmp); } catch (e) { /* none */ }
+    const fd = fs.openSync(tmp, 'wx', mode);
+    try {
+        fs.writeSync(fd, text);
+        if (uid !== null && uid !== undefined) fs.fchownSync(fd, uid, -1);
+    } finally { fs.closeSync(fd); }
     fs.renameSync(tmp, p);
 }
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -272,27 +313,139 @@ function desired(now) {
     };
 }
 
-/** The car's speed (km/h): read here (camera.js), else as the app writes it (data/speed.json); null when old. */
-function carSpeed(now) {
-    const own = camera.speed(cam, now);
-    if (own !== null) return own;
+/* ---------------- the app's folder in RAM ---------------- */
+
+const appRun = { dir: null, uid: null, error: null, checkedAt: 0 };
+/**
+ * /run/vietmap-signs/app, the app's own (0700, the owner of its data folder): what the app writes often
+ * goes there, not to flash. Made again when missing (the service's /run folder goes at each stop).
+ */
+function appRunDir(now) {
     const app = findApp(now);
     if (!app) return null;
-    const f = path.join(app.root, 'data', 'speed.json');
-    const s = readJson(f);
-    if (!s || !Number.isFinite(s.kmh)) return null;
-    const at = Date.parse(s.at) || mtime(f);
-    return now - at < 2000 && now >= at - 5000 ? s.kmh : null;
+    if (appRun.dir && now - appRun.checkedAt < 5000 && now >= appRun.checkedAt) return appRun.dir;
+    appRun.checkedAt = now;
+    const dir = path.join(CFG.run, 'app');
+    try {
+        const owner = fs.statSync(path.join(app.root, 'data'));
+        let st = null;
+        try { st = fs.lstatSync(dir); } catch (e) { /* none yet */ }
+        if (st && !st.isDirectory()) { fs.unlinkSync(dir); st = null; }
+        if (!st) fs.mkdirSync(dir, 0o700);
+        st = fs.lstatSync(dir);
+        if (st.uid !== owner.uid || st.gid !== owner.gid) fs.chownSync(dir, owner.uid, owner.gid);
+        if ((st.mode & 0o777) !== 0o700) fs.chmodSync(dir, 0o700);
+        appRun.dir = dir; appRun.uid = owner.uid; appRun.error = null;
+    } catch (e) {
+        if (appRun.error !== e.message) log('app folder ' + dir + ': ' + e.message);
+        appRun.dir = null; appRun.error = e.message;
+    }
+    return appRun.dir;
 }
 
-/** The app's Position page is open (it writes data/preview.json every second): a sign to place. */
-function preview(now) {
+/** The newest fresh copy of one of the app's files: in its RAM folder, else (an older app) in data/. */
+function appFile(now, name, maxAgeMs) {
     const app = findApp(now);
-    if (!app) return false;
-    const f = path.join(app.root, 'data', 'preview.json');
-    const p = readJson(f);
-    const at = p ? Date.parse(p.at) || mtime(f) : 0;
-    return !!at && now - at < 4000 && now >= at - 5000;
+    if (!app) return null;
+    let best = null;
+    [appRun.dir ? path.join(appRun.dir, name) : null, path.join(app.root, 'data', name)].forEach((f) => {
+        const r = f && readSmallJson(f);
+        if (!r) return;
+        const at = Date.parse(r.j.at) || r.mtime;
+        if (now - at < maxAgeMs && now >= at - 5000 && (!best || at > best.at)) best = { j: r.j, at };
+    });
+    return best;
+}
+
+/** The car's speed from here (camera.js), or null. A car that stands still sends nothing new: a speed
+ *  under 3 km/h holds for a minute (it could only hide a warning, never make one up). */
+function ownSpeed(now) {
+    const s = camera.speed(cam, now);
+    if (s !== null) return s;
+    return cam.speed !== null && cam.speed <= 3 && now - cam.speedAt < 60000 && now >= cam.speedAt ? cam.speed : null;
+}
+
+/** The car's speed (km/h): read here, else as the app writes it (speed.json, only while this has none); null when old. */
+function carSpeed(now) {
+    const own = ownSpeed(now);
+    if (own !== null) return own;
+    const s = appFile(now, 'speed.json', 2000);
+    return s && Number.isFinite(s.j.kmh) && s.j.kmh >= 0 && s.j.kmh < 400 ? s.j.kmh : null;
+}
+
+/** The app's Position page is open (it writes preview.json every second): a sign to place. With a finger
+ *  dragging it there, { t: 'map' | 'hud', x, y }: where it is now (saved in the settings when it comes up). */
+function preview(now) {
+    const p = appFile(now, 'preview.json', 4000);
+    return !!p;
+}
+function previewDrag(now) {
+    const p = appFile(now, 'preview.json', 1000);
+    const d = p && p.j.drag;
+    return d && (d.t === 'map' || d.t === 'hud') && Number.isFinite(d.x) && Number.isFinite(d.y) ? { t: d.t, x: Math.round(d.x), y: Math.round(d.y) } : null;
+}
+
+/* ---------------- pairing: the phone sends the code the app shows ---------------- */
+
+// wrong codes from one sender in a minute before it is not listened to for a minute (a phone with a wrong
+// code sends every 5 s: 12 a minute; guessing 6 digits at 20 a minute takes weeks)
+const STRIKES = 20;
+const pair = { code: null, error: null, made: null, refused: 0, from: null, at: 0, strikes: {}, newAt: 0, written: null };
+function pairFile() { return path.join(CFG.state, 'pair.json'); }
+function newCode() {
+    // six digits, never starting with 0 (typed on a phone, read on a screen)
+    const n = crypto.randomBytes(4).readUInt32BE(0);
+    return String(100000 + (n % 900000));
+}
+/** The pairing code: the one kept, else a new one saved (0600). */
+function pairCode() {
+    if (pair.code) return pair.code;
+    const p = readJson(pairFile());
+    if (p && /^\d{6}$/.test(String(p.code))) { pair.code = String(p.code); pair.made = p.made || null; return pair.code; }
+    return setCode(newCode(), 'first start');
+}
+function setCode(code, why) {
+    pair.code = code; pair.made = new Date().toISOString();
+    try {
+        try { fs.mkdirSync(CFG.state, 0o755); } catch (e) { if (e.code !== 'EEXIST') throw e; }
+        writeAtomic(pairFile(), JSON.stringify({ code, made: pair.made }) + '\n', 0o600);
+        pair.error = null;
+    } catch (e) { pair.error = e.message; log('pairing code not saved: ' + e.message); }
+    log('pairing code: new (' + why + ')');
+    pair.written = null;
+    return code;
+}
+/** The code into the app's RAM folder (pair.json, the app's user, 0600); a new one when the app asks (pair-new). */
+function pairToApp(now) {
+    const dir = appRun.dir;
+    if (!dir || !CFG.pairing) return;
+    const ask = readSmall(path.join(dir, 'pair-new'));
+    if (ask) {
+        try { fs.unlinkSync(path.join(dir, 'pair-new')); } catch (e) { /* gone */ }
+        if (now - pair.newAt > 3000 || now < pair.newAt) { pair.newAt = now; setCode(newCode(), 'asked in the app'); }
+    }
+    const f = path.join(dir, 'pair.json');
+    const want = JSON.stringify({ code: pairCode(), made: pair.made });
+    if (pair.written === want && fs.existsSync(f)) return;
+    try {
+        writeInto(f, want + '\n', 0o600, appRun.uid);
+        pair.written = want;
+    } catch (e) { log('pairing code to the app: ' + e.message); }
+}
+/** Is this datagram's code the one? A sender with STRIKES wrong ones in a minute is turned away for a minute. */
+function paired(p, addr, now) {
+    if (!CFG.pairing) return true;
+    const s = pair.strikes[addr];
+    if (s && s.n >= STRIKES && now - s.at < 60000) return false;
+    const want = Buffer.from(pairCode()), got = Buffer.from(typeof p.code === 'string' ? p.code : '');
+    const ok = got.length === want.length && crypto.timingSafeEqual(got, want);
+    if (ok) { delete pair.strikes[addr]; return true; }
+    pair.strikes[addr] = s && now - s.at < 60000 ? { n: s.n + 1, at: s.at } : { n: 1, at: now };
+    const keys = Object.keys(pair.strikes);
+    if (keys.length > 64) delete pair.strikes[keys[0]];
+    if (pair.from !== addr) log('phone ' + addr + ': wrong pairing code');
+    pair.refused++; pair.from = addr; pair.at = now;
+    return false;
 }
 
 /** BMW's own displayed speed limit, as the app last wrote it (only while the app runs). */
@@ -427,7 +580,8 @@ function parsePacket(buf) {
     if (!m || m.t !== 'vms') return null;
     const limit = Number(m.limit);
     if (!(Number.isInteger(limit) && limit >= 0 && limit <= 199)) return null;
-    return { seq: Number.isFinite(Number(m.seq)) ? Number(m.seq) : null, limit: limit || null, test: !!m.test, ver: typeof m.app === 'string' ? m.app.slice(0, 40) : null };
+    return { seq: Number.isFinite(Number(m.seq)) ? Number(m.seq) : null, limit: limit || null, test: !!m.test, ver: typeof m.app === 'string' ? m.app.slice(0, 40) : null,
+        code: typeof m.code === 'string' ? m.code.slice(0, 16) : typeof m.code === 'number' ? String(m.code) : null };
 }
 
 /* ---------------- drawing through cluster-render ---------------- */
@@ -576,6 +730,8 @@ function screenSign(now) {
 
 function decide(now) {
     const d = desired(now);
+    const dr = previewDrag(now);
+    if (dr) d[dr.t === 'map' ? 'mapPos' : 'hudPos'] = { x: dr.x, y: dr.y };
     const woc = wocStatus(now);
     const fresh = phone.at && now - phone.at < CFG.phoneStaleMs;
     const placing = preview(now);
@@ -619,11 +775,13 @@ function tick() {
     const now = Date.now();
     if (now - fw.checkedAt >= CFG.ruleMs) ensureRules(now);
     if (!cr) startRenderer();
+    appRunDir(now);
+    pairToApp(now);
     const s = decide(now);
     applyLayers({ limit: s.limit, map: s.map, hud: s.hud, warn: s.over });
     last = { shown: ['map', 'hud'].filter((t) => s[t].visible), why: s.why, limit: s.limit };
     const key = JSON.stringify([last, s.bmw, renderer, fw.error, s.d, s.placing, s.reading, s.over, s.woc.map, s.woc.hud, phone.from, phone.bad, phone.ignored,
-        screen.limit, screen.error, screen.shots, cam.limit, cam.signs, cam.ready, cam.error, cam.up]);
+        screen.limit, screen.error, screen.shots, cam.limit, cam.signs, cam.ready, cam.error, cam.up, ownSpeed(now) !== null, pair.refused, appRun.dir]);
     if (key !== lastKey || now - lastWrite > 2000) { writeStatus(s, now); lastKey = key; lastWrite = now; }
     return s;
 }
@@ -643,6 +801,10 @@ function writeStatus(s, now) {
         firewall: { present: fw.present, rules: fw.rules, error: fw.error },
         source: s.source,
         speed: s.speed, over: s.over,
+        // the app writes the car's speed only while this is false (this reads it itself otherwise)
+        speed_own: ownSpeed(now) !== null,
+        app_dir: appRun.dir, app_dir_error: appRun.error,
+        pairing: { on: CFG.pairing, refused: pair.refused, from: pair.from, ago_ms: pair.at ? now - pair.at : null, error: pair.error },
         camera: { on: s.d.camera, ready: cam.ready, error: cam.error, up: cam.up, limit: cam.limit,
             at: cam.at ? new Date(cam.at).toISOString() : null, km: Math.round(cam.km * 10) / 10, seen: cam.signs,
             events: cam.events, last_event: cam.lastEventAt ? new Date(cam.lastEventAt).toISOString() : null },
@@ -664,13 +826,20 @@ function listen(onPacket) {
         const p = parsePacket(buf);
         if (!p) { phone.bad++; return; }
         const now = Date.now();
+        if (!paired(p, rinfo.address, now)) {
+            // a phone that does not know the code: told so (it says so to its user), nothing changes
+            const s = pair.strikes[rinfo.address];
+            if (!s || s.n <= STRIKES) sock.send(Buffer.from(JSON.stringify({ t: 'vms-ack', v: 1, seq: p.seq, car: VERSION, paired: false, why: 'wrong code' })), rinfo.port, rinfo.address, () => {});
+            if (onPacket) onPacket();
+            return;
+        }
         if (phone.from !== rinfo.address) log('phone: ' + rinfo.address + ':' + rinfo.port + (p.ver ? ' (' + p.ver + ')' : ''));
         if (phone.limit !== p.limit) log('sign: ' + (p.limit || 'none') + (p.test ? ' (test)' : ''));
         const ver = p.ver || (phone.from === rinfo.address ? phone.ver : null);
         Object.assign(phone, { from: rinfo.address, at: now, seq: p.seq, limit: p.limit, test: p.test, ver });
         phone.packets++;
         if (onPacket) onPacket();
-        const ack = Buffer.from(JSON.stringify({ t: 'vms-ack', v: 1, seq: p.seq, car: VERSION, shown: last.shown, why: last.why }));
+        const ack = Buffer.from(JSON.stringify({ t: 'vms-ack', v: 1, seq: p.seq, car: VERSION, paired: true, shown: last.shown, why: last.why }));
         sock.send(ack, rinfo.port, rinfo.address, () => {});
     });
     sock.bind(CFG.port, '0.0.0.0');
@@ -688,6 +857,7 @@ function run() {
     // a datagram shows (or hides) the sign at once, not at the next look
     listen(() => { try { tick(); } catch (e) { log('tick: ' + e); } });
     if (CFG.camera) camera.start(cam, { run: CFG.run, catalog: CFG.catalog, gen: CFG.gen, someip: CFG.someip, log });
+    if (CFG.pairing) pairCode();
     const quit = (sig) => {
         log('stopping (' + sig + ')');
         clearTimeout(timer);
@@ -724,5 +894,6 @@ if (require.main === module) {
 module.exports = {
     VERSION, CFG, SIZES, drawSign, desired, findApp, wocStatus, geometry, decide, tick, parsePacket, allowedSender,
     ensureRules, removeRules, ourRules, listen, phone, renderer, layers, _last: () => last, _cam: cam, BLINK,
-    _reset: () => { appCache = null; appScanAt = 0; },
+    _reset: () => { appCache = null; appScanAt = 0; appRun.dir = null; appRun.checkedAt = 0; },
+    appRunDir, carSpeed, preview, previewDrag, ownSpeed, pairCode, setCode, pair, appRun, readSmall, writeInto,
 };

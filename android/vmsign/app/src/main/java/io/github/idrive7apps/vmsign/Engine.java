@@ -23,7 +23,7 @@ import java.util.regex.Pattern;
  * number in VietMap's windows.
  */
 final class Engine {
-    static final String VERSION = "0.3.0";
+    static final String VERSION = "0.4.0";
     /** The biggest red-ringed number in VietMap's windows (SignOcr): the sign, when no line is picked. */
     static final String OCR_SIGN = "ocr:sign";
     static final String PREFS = "vmsign";
@@ -67,6 +67,19 @@ final class Engine {
     static volatile String carShown = "";
     static volatile String carVersion = "";
     static volatile String linkNote = "";
+    /** The car's word on the pairing code: true (right), false (wrong or none), null (not said: an older helper). */
+    static volatile Boolean carPaired = null;
+    static volatile long wrongCodeAt = 0;
+
+    /** The pairing code typed (the 6 digits the car's VietMap app shows on its Pairing tab), "" when none. */
+    static String pairCode(Context c) {
+        String s = prefs(c).getString("pairCode", "");
+        return s.matches("\\d{6}") ? s : "";
+    }
+    /** The car answers and the code is right (or the car's helper does not ask for one). */
+    static boolean paired() {
+        return carAddr != null && System.currentTimeMillis() - ackAt < 10000 && !Boolean.FALSE.equals(carPaired);
+    }
 
     // what the screen shows about VietMap's windows and their pictures
     static volatile String windowsNote = "";
@@ -172,7 +185,8 @@ final class Engine {
     static String why(String w) {
         if (w == null || w.length() == 0) return "";
         switch (w) {
-            case "off in the app": return "đang Tắt trong app VietMap signs trên xe";
+            case "off in the app": return "đang Tắt trong app Biển báo VietMap trên xe";
+            case "wrong code": return "sai mã ghép đôi";
             case "no phone yet": return "xe chưa nhận được gì";
             case "the phone stopped sending": return "xe không còn nhận được";
             case "no sign in VietMap": return "chưa có biển";

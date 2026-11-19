@@ -25,8 +25,11 @@ import java.util.Set;
 
 /**
  * The sign to the car: a small JSON datagram on UDP 8471 at each change and once a second,
- *     {"t":"vms","v":1,"seq":12,"limit":60,"app":"vmsign 0.1.0"}      limit 0: no sign
- * answered by the car's helper (vietmap-signs) with {"t":"vms-ack","seq":12,"shown":[...],"why":"..."}.
+ *     {"t":"vms","v":1,"seq":12,"limit":60,"app":"vmsign 0.4.0","code":"482915"}      limit 0: no sign
+ * answered by the car's helper (vietmap-signs) with {"t":"vms-ack","seq":12,"paired":true,"shown":[...],"why":"..."}.
+ * The code is the pairing code the car's app shows (its Pairing tab), typed here once; with a wrong one
+ * the car answers "paired":false and shows nothing, and this sends only every 5 s until the code changes
+ * (the car stops listening for a minute to a phone with 20 wrong codes in a minute).
  *
  * The car is found without settings: until it answers, every datagram goes to the car's own Wi-Fi
  * address (172.16.222.97 on the BMW seen so far), to the address typed on the screen, and to the
@@ -54,6 +57,8 @@ final class CarLink {
     private final List<DatagramSocket> sockets = new ArrayList<>();
     private volatile DatagramSocket answeredOn = null;
     private int lastSent = -1;
+    private String lastCode = "";
+    private boolean force = false;
     private long lastSentAt = 0;
     volatile int sentCount = 0, errorCount = 0;
 
@@ -94,9 +99,10 @@ final class CarLink {
         if (out != lastSent) { handler.removeCallbacks(tick); handler.post(tick); }
     }
 
-    /** From the screen: a test sign (or none) to the car at once, even without the services. */
+    /** From the screen: a test sign (or none), a new code, to the car at once, even without the services. */
     void sendNow() {
         synchronized (this) {
+            force = true;
             if (handler != null) { handler.removeCallbacks(tick); handler.post(tick); return; }
         }
         new Thread(new Runnable() { @Override public void run() {
@@ -107,8 +113,13 @@ final class CarLink {
     private synchronized void send() {
         long now = System.currentTimeMillis();
         int out = Engine.outgoing();
-        // nothing changed: once a second is enough (the car hides the sign 5 s after the last)
-        if (out == lastSent && now - lastSentAt < 900) return;
+        // nothing changed: once a second is enough (the car hides the sign 5 s after the last); the car
+        // said the code is wrong: every 5 s, until it is changed (sendNow)
+        String code = Engine.pairCode(ctx);
+        boolean wrong = Boolean.FALSE.equals(Engine.carPaired) && code.equals(lastCode) && now - Engine.wrongCodeAt < 60000;
+        if (!force && now - lastSentAt < (wrong ? 5000 : out == lastSent ? 900 : 0)) return;
+        force = false;
+        lastCode = code;
         boolean answering = Engine.carAddr != null && now - Engine.ackAt < 5000 && answeredOn != null && !answeredOn.isClosed();
         if (sockets.isEmpty() || (!answering && now - socketsAt > 15000)) {
             openSockets();
@@ -122,6 +133,7 @@ final class CarLink {
             m.put("seq", ++seq);
             m.put("limit", out);
             m.put("app", "vmsign " + Engine.VERSION);
+            if (code.length() > 0) m.put("code", code);
             if (Engine.testing()) m.put("test", 1);
             data = m.toString().getBytes(StandardCharsets.UTF_8);
         } catch (Exception e) { return; }
@@ -218,6 +230,9 @@ final class CarLink {
                     Engine.ackAt = System.currentTimeMillis();
                     Engine.carWhy = m.optString("why", "");
                     Engine.carVersion = m.optString("car", "");
+                    // an older helper says nothing of a code: as paired
+                    Engine.carPaired = m.has("paired") ? Boolean.valueOf(m.optBoolean("paired", true)) : null;
+                    if (Boolean.FALSE.equals(Engine.carPaired)) Engine.wrongCodeAt = Engine.ackAt;
                     JSONArray shown = m.optJSONArray("shown");
                     StringBuilder sb = new StringBuilder();
                     if (shown != null) {

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">VietMap Signs</string>
-    <string name="service_label">VietMap Signs: đọc biển tốc độ</string>
-    <string name="service_description">Đọc con số trong biển tốc độ ở bong bóng của VietMap Live (chỉ các cửa sổ của VietMap; hình được chụp và đọc ngay trên máy, không lưu, không gửi đi) rồi gửi riêng con số qua Wi-Fi tới xe BMW để hiện trên đồng hồ và HUD. Không đọc hay gửi gì khác.</string>
-    <string name="notif_label">VietMap Signs: thông báo VietMap</string>
+    <string name="app_name">Trình hỗ trợ VietMap Live</string>
+    <string name="service_label">Trình hỗ trợ VietMap Live: đọc biển tốc độ</string>
+    <string name="service_description">Đọc con số trong biển tốc độ ở bong bóng của VietMap Live (chỉ các cửa sổ của VietMap; hình được chụp và đọc ngay trên máy, không lưu, không gửi đi) rồi gửi riêng con số qua Wi-Fi tới xe BMW (đã ghép đôi bằng mã 6 số) để hiện trên đồng hồ và HUD. Không đọc hay gửi gì khác.</string>
+    <string name="notif_label">Trình hỗ trợ VietMap Live: thông báo VietMap</string>
 </resources>

@@ -11,7 +11,7 @@ const path = require('path');
 const dgram = require('dgram');
 
 const T = fs.mkdtempSync(path.join(os.tmpdir(), 'vms-'));
-const D = { oap: path.join(T, 'oap'), run: path.join(T, 'run'), wocRun: path.join(T, 'wocrun'), bin: path.join(T, 'bin') };
+const D = { oap: path.join(T, 'oap'), run: path.join(T, 'run'), wocRun: path.join(T, 'wocrun'), bin: path.join(T, 'bin'), state: path.join(T, 'state') };
 Object.keys(D).forEach((k) => fs.mkdirSync(D[k], { recursive: true }));
 
 // nft: the input chain as a file of rules, "-a list" with handles, insert, delete by handle
@@ -55,7 +55,7 @@ module.exports = { ClusterRender, calls };
 
 const PORT = 18000 + (process.pid % 2000);
 Object.assign(process.env, {
-    VMS_OAP: D.oap, VMS_RUN: D.run, VMS_WOC_RUN: D.wocRun, VMS_NFT: path.join(D.bin, 'nft'), VMS_CR_CLIENT: FAKE_CR,
+    VMS_OAP: D.oap, VMS_RUN: D.run, VMS_STATE: D.state, VMS_WOC_RUN: D.wocRun, VMS_NFT: path.join(D.bin, 'nft'), VMS_CR_CLIENT: FAKE_CR,
     VMS_PORT: String(PORT), VMS_LOOPBACK: '1', VMS_PHONE_STALE_MS: '600', VMS_RULE_MS: '100000000',
     VMS_GRABBER: path.join(T, 'no-grabber-yet'), VMS_SCREEN_MS: '50', VMS_XDG_RUNTIME_DIR: '/run/wayland-test',
 });
@@ -83,8 +83,9 @@ function installApp(uid, id) {
     };
 }
 
-/** The phone: one datagram, the car's answer. */
+/** The phone: one datagram (with the pairing code, unless it has one of its own), the car's answer. */
 function send(msg) {
+    if (msg && typeof msg === 'object' && !('code' in msg)) msg = Object.assign({ code: vms.pairCode() }, msg);
     return new Promise((resolve, reject) => {
         const s = dgram.createSocket('udp4');
         const t = setTimeout(() => { s.close(); reject(new Error('no answer to ' + JSON.stringify(msg))); }, 1500);
@@ -115,7 +116,8 @@ function sendNoAnswer(msg) {
 
     // --- the phone's datagrams ---
     assert.deepStrictEqual(vms.parsePacket(Buffer.from('{"t":"vms","v":1,"seq":4,"limit":60,"app":"vmsign 0.1.0"}')),
-        { seq: 4, limit: 60, test: false, ver: 'vmsign 0.1.0' });
+        { seq: 4, limit: 60, test: false, ver: 'vmsign 0.1.0', code: null });
+    assert.strictEqual(vms.parsePacket(Buffer.from('{"t":"vms","limit":60,"code":"123456"}')).code, '123456');
     assert.strictEqual(vms.parsePacket(Buffer.from('{"t":"vms","limit":0}')).limit, null);
     assert.strictEqual(vms.parsePacket(Buffer.from('{"t":"vms","limit":60.5}')), null);
     assert.strictEqual(vms.parsePacket(Buffer.from('{"t":"vms","limit":500}')), null);
@@ -465,6 +467,90 @@ fs.mkdirSync(out); fs.writeFileSync(out + '/' + i.replace(/\\./g, '_') + '.json'
     assert.deepStrictEqual(subs.map((x) => x[1]).sort(), ['TrafficSignRecognitionFrontCamera', 'statusCarSpeed2']);
     assert.strictEqual(held.length, 2, 'the proxies are kept');
     assert(fs.existsSync(path.join(T, 'camrun', 'someip', 'camera', 'de_bmw_environmentalmodel_SignRecognitionFrontCamera.json')));
+
+    // --- the app's folder in RAM: made for the app's user, 0700; speed and preview read from there ---
+    vms._reset();
+    vms.tick();
+    const ramDir = path.join(D.run, 'app');
+    const rst = fs.lstatSync(ramDir);
+    assert(rst.isDirectory() && (rst.mode & 0o777) === 0o700, 'the app\'s RAM folder, 0700');
+    assert.strictEqual(rst.uid, fs.statSync(path.join(D.oap, 'oap_12301', 'data')).uid);
+    assert.strictEqual(status().app_dir, ramDir);
+    // the helper has its own speed (100 above): the app is told not to write it
+    camera.onSpeed(C, { speedVehicleCentreOfGravity: 6400 }, Date.now());
+    vms.tick();
+    assert.strictEqual(status().speed_own, true, 'own speed: the app writes none');
+    // no own speed: the app's, from its RAM folder, the newest of RAM and data/
+    C.speed = null; C.speedAt = 0;
+    fs.writeFileSync(path.join(D.oap, 'oap_12301', 'data', 'speed.json'), JSON.stringify({ at: new Date(Date.now() - 500).toISOString(), kmh: 50 }));
+    fs.writeFileSync(path.join(ramDir, 'speed.json'), JSON.stringify({ at: new Date().toISOString(), kmh: 77 }));
+    assert.strictEqual(vms.carSpeed(Date.now()), 77, 'the newer one, in RAM');
+    vms.tick();
+    assert.strictEqual(status().speed_own, false);
+    assert.strictEqual(status().speed, 77);
+    // standing still: the helper's own low speed holds a minute (no new values come then)
+    camera.onSpeed(C, { speedVehicleCentreOfGravity: 0 }, Date.now() - 20000);
+    assert.strictEqual(vms.ownSpeed(Date.now()), 0, 'standing still: still its own');
+    camera.onSpeed(C, { speedVehicleCentreOfGravity: 3840 }, Date.now() - 20000);
+    assert.strictEqual(vms.ownSpeed(Date.now()), null, 'a moving car\'s old speed is not held');
+    C.speed = null; C.speedAt = 0;
+    // a link the app left there is not followed (the helper is root)
+    const secret = path.join(T, 'secret.json');
+    fs.writeFileSync(secret, JSON.stringify({ at: new Date().toISOString(), kmh: 123 }));
+    fs.unlinkSync(path.join(ramDir, 'speed.json'));
+    fs.unlinkSync(path.join(D.oap, 'oap_12301', 'data', 'speed.json'));
+    fs.symlinkSync(secret, path.join(ramDir, 'speed.json'));
+    assert.strictEqual(vms.carSpeed(Date.now()), null, 'a link is not read');
+    fs.unlinkSync(path.join(ramDir, 'speed.json'));
+    fs.writeFileSync(path.join(ramDir, 'preview.json'), JSON.stringify({ at: new Date().toISOString() }));
+    assert.strictEqual(vms.preview(Date.now()), true, 'the Position page open, from RAM');
+    // a finger dragging the sign: shown where it is now, before anything is saved
+    fs.writeFileSync(path.join(ramDir, 'preview.json'), JSON.stringify({ at: new Date().toISOString(), drag: { t: 'map', x: 500, y: 120 } }));
+    w = vms.tick();
+    assert.deepStrictEqual([w.map.x, w.map.y], [500, 120], 'the dragged place, live');
+    fs.unlinkSync(path.join(ramDir, 'preview.json'));
+    // the folder gone (the service restarted): made again
+    fs.readdirSync(ramDir).forEach((f) => fs.unlinkSync(path.join(ramDir, f)));
+    fs.rmdirSync(ramDir);
+    vms._reset();
+    vms.tick();
+    assert(fs.existsSync(ramDir), 'made again');
+
+    // --- pairing: the code kept, given to the app, a phone without it refused ---
+    const code = vms.pairCode();
+    assert(/^[1-9]\d{5}$/.test(code), 'six digits: ' + code);
+    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(D.state, 'pair.json'), 'utf8')).code, code, 'kept');
+    assert.strictEqual(fs.statSync(path.join(D.state, 'pair.json')).mode & 0o777, 0o600);
+    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(ramDir, 'pair.json'), 'utf8')).code, code, 'the app has it');
+    a = await send({ t: 'vms', v: 1, seq: 50, limit: 90, code: '000000' });
+    assert.deepStrictEqual([a.paired, a.why], [false, 'wrong code']);
+    assert.notStrictEqual(vms.phone.limit, 90, 'a wrong code changes nothing');
+    a = await send({ t: 'vms', v: 1, seq: 51, limit: 90, code: undefined });             // an old phone app: no code
+    assert.strictEqual(a.paired, false);
+    vms.tick();
+    assert(status().pairing.refused >= 2 && status().pairing.from === '127.0.0.1');
+    a = await send({ t: 'vms', v: 1, seq: 52, limit: 90, code });
+    assert.deepStrictEqual([a.paired, vms.phone.limit], [true, 90], 'the right code');
+    // 20 wrong ones in a minute: that sender is not listened to for a while, even with the right code
+    for (let k = 0; k < 20; k++) await send({ t: 'vms', v: 1, seq: 60 + k, limit: 40, code: '999999' }).catch(() => null);
+    await sendNoAnswer(JSON.stringify({ t: 'vms', v: 1, seq: 70, limit: 40, code }));
+    assert.strictEqual(vms.phone.limit, 90, 'turned away after 20 wrong codes');
+    vms.pair.strikes = {};
+    // a new code, asked in the app: the old one stops working
+    fs.writeFileSync(path.join(ramDir, 'pair-new'), '1');
+    vms.tick();
+    const code2 = JSON.parse(fs.readFileSync(path.join(ramDir, 'pair.json'), 'utf8')).code;
+    assert.notStrictEqual(code2, code, 'a new code');
+    assert(!fs.existsSync(path.join(ramDir, 'pair-new')), 'the ask taken');
+    a = await send({ t: 'vms', v: 1, seq: 80, limit: 40, code });
+    assert.strictEqual(a.paired, false, 'the old code no more');
+    // a link the app left as the temporary file: not written through
+    fs.writeFileSync(path.join(T, 'victim'), 'keep');
+    fs.symlinkSync(path.join(T, 'victim'), path.join(ramDir, 'pair.json.tmp'));
+    vms.pair.written = null;
+    vms.tick();
+    assert.strictEqual(fs.readFileSync(path.join(T, 'victim'), 'utf8'), 'keep', 'not through a link');
+    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(ramDir, 'pair.json'), 'utf8')).code, code2);
 
     console.log('vietmap-signs: all checks passed');
     process.exit(0);

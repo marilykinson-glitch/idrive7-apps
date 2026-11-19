@@ -136,6 +136,39 @@ test('a sheet\'s press, back and touch target that throw: logged, the app runs o
     } finally { t.end(); }
 });
 
+test('a finger on what the app drags (ctx.onDrag): it follows, no tap; one that hardly moves is a tap', async () => {
+    const t = await setup(), c = t.c;
+    try {
+        page(t.d, 10);
+        const seen = [], taps = [];
+        let take = true;
+        t.d.onDrag = (ph, x, y) => { seen.push([ph, Math.round(x), Math.round(y)]); return ph === 'start' ? take : true; };
+        t.d.onTap = (x, y) => taps.push([x, y]);
+        c.send(TOUCH, touch(1, 800, 300)); c.send(TOUCH, touch(2, 803, 301)); c.send(TOUCH, touch(2, 850, 320));
+        c.send(TOUCH, touch(2, 900, 340)); c.send(TOUCH, touch(3, 900, 340));
+        await sleep(100);
+        assert.deepStrictEqual(seen.map((s) => s[0]), ['start', 'move', 'move', 'end'], 'a small first wobble is no move: ' + JSON.stringify(seen));
+        assert(seen[3][1] > seen[0][1] && seen[3][2] > seen[0][2], 'it went right and down');
+        assert.deepStrictEqual(taps, [], 'a drag is no tap');
+        // down and up in place: cancelled, then the tap
+        seen.length = 0;
+        c.send(TOUCH, touch(1, 700, 250)); c.send(TOUCH, touch(3, 700, 250));
+        await sleep(100);
+        assert.deepStrictEqual(seen.map((s) => s[0]), ['start', 'cancel']);
+        assert.strictEqual(taps.length, 1, 'a tap');
+        // the app does not take it: nothing more goes to onDrag
+        seen.length = 0; take = false;
+        c.send(TOUCH, touch(1, 700, 250)); c.send(TOUCH, touch(2, 760, 260)); c.send(TOUCH, touch(3, 760, 260));
+        await sleep(100);
+        assert.deepStrictEqual(seen.map((s) => s[0]), ['start']);
+        // one that throws: logged, the app runs on
+        t.d.onDrag = () => { throw new Error('drag'); };
+        c.send(TOUCH, touch(1, 700, 250)); c.send(TOUCH, touch(3, 700, 250));
+        await sleep(100);
+        assert(t.log.errors.some((a) => a[0] === 'drag'), 'logged');
+    } finally { t.end(); }
+});
+
 test('not in front, then in front (not on screen yet) within 1.5 s: the app stays on the renderer', async () => {
     const t = await setup(), c = t.c;
     try {

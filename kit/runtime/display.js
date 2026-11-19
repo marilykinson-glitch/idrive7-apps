@@ -410,7 +410,8 @@ class Display {
 
     /**
      * Touch (logical px): a tap (down and up on the same thing) on a tab opens its page; with the kit
-     * running the screen also on a bar button (pressed), a sheet's targets, or the page (ctx.onTap).
+     * running the screen also on a bar button (pressed), a sheet's targets, or the page (ctx.onTap). A finger
+     * that goes down where the app takes a drag (ctx.onDrag returns true for 'start') moves it instead.
      */
     _touch(phase, x, y) {
         const inside = (r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
@@ -421,6 +422,23 @@ class Display {
             const tab = !bar && (this.tabs || []).find(inside);
             const tgt = !bar && !tab && !this.sheet ? (this.pageTargets || []).find(inside) : null;
             const key = bar ? 'bar:' + bar.id : tab ? 'tab:' + tab.i : tgt ? 'tgt:' + tgt.key : this.sheet ? 'sheet:' + (this.sheetTargets || []).findIndex(inside) : null;
+            // a finger on the page that the app takes to drag something (ctx.onDrag): it follows, and no tap then
+            if (!bar && !tab && !tgt && !this.sheet && this.onDrag) {
+                if (phase === 1) {
+                    let took = false;
+                    try { took = !!this.onDrag('start', x, y); } catch (e) { this.log.error('drag', e); }
+                    this.pageDrag = took ? { x, y, moved: false } : null;
+                } else if (this.pageDrag && phase === 2) {
+                    if (Math.abs(x - this.pageDrag.x) > 8 || Math.abs(y - this.pageDrag.y) > 8) this.pageDrag.moved = true;
+                    if (this.pageDrag.moved) { try { this.onDrag('move', x, y); } catch (e) { this.log.error('drag', e); } }
+                    return;
+                } else if (this.pageDrag && phase === 3) {
+                    const moved = this.pageDrag.moved;
+                    this.pageDrag = null;
+                    try { this.onDrag(moved ? 'end' : 'cancel', x, y); } catch (e) { this.log.error('drag', e); }
+                    if (moved) { this.downAt = null; this.ownDown = null; return; }
+                }
+            }
             if (phase === 3 && this.dragging && !this.sheet) { this.dragging = false; this.ownDown = null; return; }
             if (phase === 3 && !this.dragging && key && key === this.ownDown && (tab || tgt)) {
                 this.ownDown = null;

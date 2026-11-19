@@ -178,7 +178,7 @@ public class SignReaderService extends AccessibilityService {
         Engine.windowsNote = note.toString();
         items.addAll(ocrItems(vietmap));
         Engine.setWindowItems(this, items, pkgs);
-        boolean carHere = Engine.carAddr != null && now - Engine.ackAt < 10000;
+        boolean carHere = Engine.paired();
         boolean wantDim = small && carHere && Engine.prefs(this).getBoolean("dim", true)
                 && !MainActivity.visible && now >= snoozeUntil;
         Engine.dimNote = dimNote(small, carHere, now);

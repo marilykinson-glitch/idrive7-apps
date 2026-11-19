@@ -1,4 +1,4 @@
-# VietMap Signs (phone app)
+# Trình hỗ trợ VietMap Live (phone app, formerly VietMap Signs)
 
 The phone half of [VietMap signs](../../apps/vietmap_signs): reads the speed-limit number in VietMap
 Live's floating speed bubble on an Android phone and sends it over Wi-Fi to the car, whose helper
@@ -10,14 +10,21 @@ publishes a release: on the phone, open
 `https://github.com/<owner>/idrive7-apps/releases/latest/download/VietMapSigns.apk`, open the download,
 allow installing from the browser. A failed build's log is in the branch `ci-log`.
 
+**The screen**: the sign as read and the car's state at the top; "Cần làm" lists only what is still
+missing (accessibility, battery, the pairing code), each with its button; then pairing, test signs,
+options; the technical detail (all text read in VietMap's windows, the pictures) is hidden until asked.
+
 **Set it up** (the app's screen says what is missing):
 1. Accessibility: Settings → Accessibility → Downloaded apps → VietMap Signs → on. Android 13 and later
    block that for an app from a browser at first ("restricted setting"): Settings → Apps → VietMap Signs
    → ⋮ → Allow restricted settings, then turn it on.
 2. Battery: no restrictions (the app's button). On Xiaomi also Autostart.
 3. Notification access: optional, for VietMap notifications that carry the sign.
-4. Open VietMap Live so its speed bubble shows. The app reads the number in the bubble's red-ringed
-   sign by itself; if it ever reads the wrong thing, tap the right line in list "5." to keep that one.
+4. Pairing: on the car's screen, open the VietMap signs app (Biển báo VietMap) → tab Pairing (Ghép đôi);
+   type its 6 digits into the app's "Ghép đôi với xe" card, Save. The car listens only to a phone with
+   that code ("New code" there makes another one; type it again then).
+5. Open VietMap Live so its speed bubble shows. The app reads the number in the bubble's red-ringed
+   sign by itself; if it ever reads the wrong thing, tap the right line under "Chi tiết kỹ thuật" to keep that one.
 
 **What it reads.** Only windows and notifications of packages whose name has "vietmap" in it
 (`vn.vietmap.live`); of other windows only the package name, shown on the screen. VietMap's bubble
@@ -29,8 +36,9 @@ sign; the speed you drive is never in a red ring. The bubble is read
 while the screen is on and unlocked: "keep the screen on" (the default) keeps it on while VietMap shows a
 window, with a 1x1 accessibility overlay.
 
-**What it sends.** UDP 8471, `{"t":"vms","v":1,"seq":12,"limit":60,"app":"vmsign 0.1.0"}` at each change
-and once a second (`limit` 0: none). Until the car answers, to 172.16.222.97 (the BMW's own Wi-Fi), to the
+**What it sends.** UDP 8471, `{"t":"vms","v":1,"seq":12,"limit":60,"app":"vmsign 0.4.0","code":"482915"}` at each change
+and once a second (`limit` 0: none; `code`: the pairing code). The car answers `"paired":false` to a
+wrong code and shows nothing; the app then says so and sends only every 5 s until the code is changed. Until the car answers, to 172.16.222.97 (the BMW's own Wi-Fi), to the
 IP typed in the app, and to the broadcast address of every network the phone is on, from the default
 socket and one bound to each Wi-Fi network Android lets it use; then only to the car, the way it answered.
 Test signs (50, 80, 120) from the screen show for 15 s.

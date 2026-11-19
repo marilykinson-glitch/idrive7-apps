@@ -48,12 +48,12 @@ jobs:
           cp "$APK" "out/VietMapSigns-$VER.apk"
           cp "$APK" out/VietMapSigns.apk
           TAG="vmsign-v$VER"
-          NOTES="VietMap Signs $VER, built from ${GITHUB_SHA::7}. On the phone: download VietMapSigns.apk, open it, allow installing from the browser. See android/vmsign/README.md."
+          NOTES="Trình hỗ trợ VietMap Live (VietMap Signs) $VER, built from ${GITHUB_SHA::7}. On the phone: download VietMapSigns.apk, open it, allow installing from the browser. See android/vmsign/README.md."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" out/*.apk --clobber
             gh release edit "$TAG" --notes "$NOTES" --latest
           else
-            gh release create "$TAG" out/*.apk --title "VietMap Signs $VER" --notes "$NOTES" --latest --target "$GITHUB_SHA"
+            gh release create "$TAG" out/*.apk --title "Trình hỗ trợ VietMap Live $VER" --notes "$NOTES" --latest --target "$GITHUB_SHA"
           fi
       - uses: actions/upload-artifact@v4
         if: always()
