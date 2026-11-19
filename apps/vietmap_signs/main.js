@@ -96,15 +96,15 @@ mgu.run({
         // a finger on the sign in a picture drags it: on the car at once (the helper reads the settings it
         // shows), saved once when it comes up
         if (ctx.onDrag) ctx.onDrag((phase, x, y) => {
-            if (page !== 1) return false;
             const hit = UI.hit(x, y);
             if (phase === 'start') {
-                if (!hit) return false;
+                // only on the Position page (a move, an end or a cancel ends what was begun there, wherever)
+                if (page !== 1 || !hit) return false;
                 const g = UI.geometry(status, settings, hit.target);
                 const grab = Math.max(g.size, 90);
                 if (Math.abs(hit.x - (g.x + g.size / 2)) > grab || Math.abs(hit.y - (g.y + g.size / 2)) > grab) return false;
                 editing = hit.target;
-                drag = { t: hit.target, offX: g.x - hit.x, offY: g.y - hit.y, x: g.x, y: g.y };
+                drag = { t: hit.target, offX: g.x - hit.x, offY: g.y - hit.y, x: g.x, y: g.y, at: Date.now() };
                 repaint();
                 return true;
             }
@@ -114,7 +114,7 @@ mgu.run({
                 const P = UI.PICS[drag.t];
                 const tx = (x - P.x) / P.k, ty = (y - P.y) / P.k;
                 const at = clampTo(drag.t, tx + drag.offX, ty + drag.offY);
-                drag.x = at.x; drag.y = at.y;
+                drag.x = at.x; drag.y = at.y; drag.at = Date.now();
             }
             if (phase === 'end') { const d = drag; drag = null; place(d.t, d.x, d.y); previewAt = 0; previewTick(); return true; }
             if (phase === 'cancel') drag = null;
@@ -180,6 +180,7 @@ mgu.run({
         const render = async () => {
             const want = { on: settings.get('mode') !== 'off', show: settings.get('show') };
             status = readStatus();
+            if (drag && Date.now() - drag.at > 10000) drag = null;      // its finger's lift never came
             previewTick();
             const r = report(status, want);
             const geo = (t) => {

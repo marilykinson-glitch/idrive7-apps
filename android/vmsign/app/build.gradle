@@ -3,8 +3,8 @@ plugins {
 }
 
 // The version shown in the app and sent to the car; the workflow names the release after it.
-def appVersion = '0.4.1'
-def appCode = 6
+def appVersion = '0.4.2'
+def appCode = 7
 
 android {
     namespace 'io.github.idrive7apps.vmsign'

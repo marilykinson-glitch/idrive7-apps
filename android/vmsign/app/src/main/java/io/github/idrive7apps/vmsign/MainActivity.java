@@ -21,6 +21,8 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.InputMethodManager;
+import android.view.accessibility.AccessibilityManager;
+import android.accessibilityservice.AccessibilityServiceInfo;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.CompoundButton;
@@ -68,6 +70,8 @@ public class MainActivity extends Activity {
     private Bitmap shownScreen;
     private String itemsSig = "", todoSig = "";
     private ScrollView scroll;
+    /** When this screen came to the front: the reader is given a few seconds to start before it counts as not running. */
+    private long resumedAt = 0;
 
     private final Runnable refresh = new Runnable() {
         @Override public void run() {
@@ -187,25 +191,7 @@ public class MainActivity extends Activity {
                         + "Đừng bấm nút nguồn: khoá máy là ngừng đọc."));
         dimState = text("", 12, false, DIM);
         opts.addView(dimState);
-        opts.addView(text("IP của xe (để trống: tự dò)", 13, false, DIM));
-        LinearLayout ipRow = new LinearLayout(this);
-        ipRow.setOrientation(LinearLayout.HORIZONTAL);
-        final EditText ip = new EditText(this);
-        ip.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
-        ip.setHint(CarLink.DEFAULT_CAR);
-        ip.setTextColor(Color.WHITE);
-        ip.setHintTextColor(LINE);
-        ip.setText(Engine.prefs(this).getString("carIp", ""));
-        ip.setSingleLine(true);
-        ipRow.addView(ip, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        ipRow.addView(button("Lưu", new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                Engine.prefs(MainActivity.this).edit().putString("carIp", ip.getText().toString().trim()).apply();
-                hideKeyboard(ip);
-                CarLink.get(MainActivity.this).sendNow();
-            }
-        }), new LinearLayout.LayoutParams(dp(96), ViewGroup.LayoutParams.WRAP_CONTENT));
-        opts.addView(ipRow);
+
         opts.addView(button("Quyền đọc thông báo VietMap (không bắt buộc)", new View.OnClickListener() {
             @Override public void onClick(View v) { open(new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")); }
         }));
@@ -216,11 +202,11 @@ public class MainActivity extends Activity {
         }));
 
         // --- technical detail, hidden until asked ---
-        detailsBtn = button("Chi tiết kỹ thuật ▾", new View.OnClickListener() {
+        detailsBtn = button("Nâng cao & chi tiết kỹ thuật ▾", new View.OnClickListener() {
             @Override public void onClick(View v) {
                 boolean show = details.getVisibility() != View.VISIBLE;
                 details.setVisibility(show ? View.VISIBLE : View.GONE);
-                detailsBtn.setText(show ? "Ẩn chi tiết kỹ thuật ▴" : "Chi tiết kỹ thuật ▾");
+                detailsBtn.setText(show ? "Ẩn nâng cao & chi tiết ▴" : "Nâng cao & chi tiết kỹ thuật ▾");
             }
         });
         LinearLayout.LayoutParams dl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -242,12 +228,34 @@ public class MainActivity extends Activity {
         shotScreen.setAdjustViewBounds(true);
         shotScreen.setBackgroundColor(Color.parseColor("#404040"));
         details.addView(shotScreen);
+        details.addView(text("Địa chỉ IP của xe (thường không cần)", 14, true, Color.WHITE));
+        details.addView(text("App tự tìm xe trên Wi-Fi. Chỉ điền khi dòng Xe ở trên cứ báo \"Chưa thấy xe\" dù điện thoại "
+                + "đã nối Wi-Fi của xe: điền IP của đầu xe trên mạng đó (Wi-Fi của xe thường là " + CarLink.DEFAULT_CAR + "). Để trống là tự dò.", 12, false, DIM));
+        LinearLayout ipRow = new LinearLayout(this);
+        ipRow.setOrientation(LinearLayout.HORIZONTAL);
+        final EditText ip = new EditText(this);
+        ip.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        ip.setHint(CarLink.DEFAULT_CAR);
+        ip.setTextColor(Color.WHITE);
+        ip.setHintTextColor(LINE);
+        ip.setText(Engine.prefs(this).getString("carIp", ""));
+        ip.setSingleLine(true);
+        ipRow.addView(ip, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        ipRow.addView(button("Lưu", new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                Engine.prefs(MainActivity.this).edit().putString("carIp", ip.getText().toString().trim()).apply();
+                hideKeyboard(ip);
+                CarLink.get(MainActivity.this).sendNow();
+            }
+        }), new LinearLayout.LayoutParams(dp(96), ViewGroup.LayoutParams.WRAP_CONTENT));
+        details.addView(ipRow);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
         visible = true;
+        resumedAt = System.currentTimeMillis();
         SignReaderService.refresh();
         handler.removeCallbacks(refresh);
         handler.post(refresh);
@@ -279,8 +287,12 @@ public class MainActivity extends Activity {
 
     private void render() {
         long now = System.currentTimeMillis();
-        boolean a11yOn = enabled(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        boolean a11yOn = enabled(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) || bound();
         boolean running = SignReaderService.running != null;
+        // turned on but not (yet) running: the system starts it a moment after the app; only after a few
+        // seconds is that a problem (the phone stopped it: off and on again in Accessibility fixes it)
+        boolean starting = a11yOn && !running && now - resumedAt < 6000;
+        boolean stuck = a11yOn && !running && !starting;
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
         boolean free = pm != null && pm.isIgnoringBatteryOptimizations(getPackageName());
         String code = Engine.pairCode(this);
@@ -293,7 +305,8 @@ public class MainActivity extends Activity {
         signNum.setTextColor(n > 0 ? Color.BLACK : DIM);
         signNum.setAlpha(n > 0 ? 1f : 0.45f);
         String key = Engine.pickedKey(this);
-        if (!running) set(vmDot, vmLine, AMBER, a11yOn ? "Đã bật quyền, chưa chạy" : "Chưa bật quyền đọc VietMap");
+        if (starting) set(vmDot, vmLine, DIM, "Đang khởi động trình đọc…");
+        else if (!running) set(vmDot, vmLine, AMBER, a11yOn ? "Trợ năng đã bật nhưng không chạy" : "Chưa bật quyền đọc VietMap");
         else if (Engine.testing()) set(vmDot, vmLine, BLUE, "Đang gửi biển thử " + Engine.testLimit);
         else if (Engine.limit > 0) set(vmDot, vmLine, GREEN, "Đang đọc biển " + Engine.limit + (Engine.picked ? " (dòng bạn chọn)" : ""));
         else if (key.length() > 0) set(vmDot, vmLine, DIM, "Dòng đã chọn chưa có số");
@@ -313,14 +326,21 @@ public class MainActivity extends Activity {
 
         // what is still to do
         StringBuilder sig = new StringBuilder();
-        if (!running) sig.append('a');
+        if (!a11yOn) sig.append('a');
+        else if (stuck) sig.append('s');
         if (!free) sig.append('b');
         if (code.length() == 0 || wrong) sig.append(wrong ? 'w' : 'c');
         String ts = sig.toString();
         if (!ts.equals(todoSig)) {
             todoSig = ts;
             todoList.removeAllViews();
-            if (!running) todoItem("Bật quyền Trợ năng cho app",
+            if (stuck) todoItem("Trợ năng đã bật nhưng không chạy",
+                    "Điện thoại đã dừng trình đọc (hay gặp sau khi cập nhật app hoặc khi máy tiết kiệm pin). Trong Trợ năng: "
+                            + "tắt " + getString(R.string.app_name) + " rồi bật lại. Đặt Pin: Không giới hạn để khỏi bị dừng nữa.",
+                    "Mở Trợ năng", new View.OnClickListener() {
+                        @Override public void onClick(View v) { open(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)); }
+                    });
+            if (!a11yOn) todoItem("Bật quyền Trợ năng cho app",
                     "Trợ năng → Ứng dụng đã tải xuống → " + getString(R.string.app_name) + " → Bật. Nếu bị chặn (\"cài đặt bị hạn chế\"): "
                             + "Cài đặt → Ứng dụng → " + getString(R.string.app_name) + " → ⋮ → Cho phép cài đặt bị hạn chế.",
                     "Mở Trợ năng", new View.OnClickListener() {
@@ -412,6 +432,19 @@ public class MainActivity extends Activity {
         diag.setText((w.length() > 0 ? w : "Chưa thấy cửa sổ VietMap") + (o.length() > 0 ? "\n" + o : "") + (o2.length() > 0 ? "\n" + o2 : ""));
         Bitmap b = Engine.screenShot;
         if (b != shownScreen) { shownScreen = b; shotScreen.setImageBitmap(b); }
+    }
+
+    /** The system lists the reader among the accessibility services it has on (another way to ask than the setting). */
+    private boolean bound() {
+        try {
+            AccessibilityManager am = (AccessibilityManager) getSystemService(Context.ACCESSIBILITY_SERVICE);
+            if (am == null) return false;
+            for (AccessibilityServiceInfo i : am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)) {
+                if (i != null && i.getResolveInfo() != null && i.getResolveInfo().serviceInfo != null
+                        && getPackageName().equals(i.getResolveInfo().serviceInfo.packageName)) return true;
+            }
+        } catch (RuntimeException e) { /* not known */ }
+        return false;
     }
 
     private boolean enabled(String setting) {

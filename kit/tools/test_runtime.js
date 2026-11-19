@@ -161,6 +161,12 @@ test('a finger on what the app drags (ctx.onDrag): it follows, no tap; one that 
         c.send(TOUCH, touch(1, 700, 250)); c.send(TOUCH, touch(2, 760, 260)); c.send(TOUCH, touch(3, 760, 260));
         await sleep(100);
         assert.deepStrictEqual(seen.map((s) => s[0]), ['start']);
+        // a drag whose lift never came: the next touch cancels it first
+        seen.length = 0; take = true;
+        c.send(TOUCH, touch(1, 700, 250)); c.send(TOUCH, touch(2, 760, 260));
+        c.send(TOUCH, touch(1, 400, 200)); c.send(TOUCH, touch(3, 400, 200));
+        await sleep(100);
+        assert.deepStrictEqual(seen.map((s) => s[0]), ['start', 'move', 'cancel', 'start', 'cancel'], JSON.stringify(seen));
         // one that throws: logged, the app runs on
         t.d.onDrag = () => { throw new Error('drag'); };
         c.send(TOUCH, touch(1, 700, 250)); c.send(TOUCH, touch(3, 700, 250));

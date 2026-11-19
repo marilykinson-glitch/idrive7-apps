@@ -423,7 +423,16 @@ class Display {
             const tgt = !bar && !tab && !this.sheet ? (this.pageTargets || []).find(inside) : null;
             const key = bar ? 'bar:' + bar.id : tab ? 'tab:' + tab.i : tgt ? 'tgt:' + tgt.key : this.sheet ? 'sheet:' + (this.sheetTargets || []).findIndex(inside) : null;
             // a finger on the page that the app takes to drag something (ctx.onDrag): it follows, and no tap then
-            if (!bar && !tab && !tgt && !this.sheet && this.onDrag) {
+            // a drag left over (its finger's lift never came, or a sheet opened over it): ended, not kept
+            if (phase === 1 && this.pageDrag) {
+                this.pageDrag = null;
+                try { if (this.onDrag) this.onDrag('cancel', x, y); } catch (e) { this.log.error('drag', e); }
+            }
+            if (this.pageDrag && (phase === 2 || phase === 3) && (this.sheet || !this.onDrag)) {
+                this.pageDrag = null;
+                try { if (this.onDrag) this.onDrag('cancel', x, y); } catch (e) { this.log.error('drag', e); }
+            }
+            if (this.onDrag && !this.sheet && (this.pageDrag || (!bar && !tab && !tgt))) {
                 if (phase === 1) {
                     let took = false;
                     try { took = !!this.onDrag('start', x, y); } catch (e) { this.log.error('drag', e); }
