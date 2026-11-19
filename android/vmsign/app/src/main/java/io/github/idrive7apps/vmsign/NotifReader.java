@@ -14,18 +14,32 @@ import java.util.List;
  */
 public class NotifReader extends NotificationListenerService {
     static volatile boolean connected = false;
+    /** This listener holds the car link (one start, one stop: CarLink counts its users). */
+    private boolean holding = false;
 
     @Override
     public void onListenerConnected() {
         connected = true;
-        CarLink.get(this).start();
+        if (!holding) { holding = true; CarLink.get(this).start(); }
         readAll();
     }
 
     @Override
     public void onListenerDisconnected() {
+        release();
+    }
+
+    @Override
+    public void onDestroy() {
+        release();
+        super.onDestroy();
+    }
+
+    /** Disconnected or gone: its items cleared, its hold on the car link given back. */
+    private void release() {
         connected = false;
         Engine.setNotifItems(this, new ArrayList<Engine.Item>());
+        if (holding) { holding = false; CarLink.get(this).stop(); }
     }
 
     @Override

@@ -108,4 +108,14 @@ function report(s, want, bmw) {
     return { unpaired: !!unpaired, limit: s.limit || null, phoneLimit: p.limit || null, source: s.source || null, lines, note, noteKind, pending: !!pending, bmwView: bmw && bmw.view };
 }
 
-module.exports = { readStatus, report, bmwFrom, STATUS, RUN_APP, STALE_MS, WHY };
+/**
+ * When the app's last speed may be given again as current (the car sends nothing new while it stands
+ * still): now, for a speed under 3 km/h heard within a minute; else null - a moving car's speed that
+ * stops coming must go stale (2 s at the helper), never be kept as if new (it would warn on an old 100).
+ */
+function speedStamp(speed, heardAt, now) {
+    if (speed === null || !heardAt) return null;
+    return speed <= 3 && now - heardAt < 60000 && now >= heardAt ? now : null;
+}
+
+module.exports = { readStatus, report, bmwFrom, speedStamp, STATUS, RUN_APP, STALE_MS, WHY };

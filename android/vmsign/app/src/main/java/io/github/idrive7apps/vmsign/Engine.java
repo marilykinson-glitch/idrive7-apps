@@ -23,7 +23,7 @@ import java.util.regex.Pattern;
  * number in VietMap's windows.
  */
 final class Engine {
-    static final String VERSION = "0.4.0";
+    static final String VERSION = "0.4.1";
     /** The biggest red-ringed number in VietMap's windows (SignOcr): the sign, when no line is picked. */
     static final String OCR_SIGN = "ocr:sign";
     static final String PREFS = "vmsign";
@@ -54,11 +54,12 @@ final class Engine {
     static List<Item> windowItems = Collections.emptyList();
     static List<Item> notifItems = Collections.emptyList();
     static Set<String> packages = new LinkedHashSet<>();
-    static long scanAt = 0;
+    static volatile long scanAt = 0;
 
     static volatile int limit = 0;            // VietMap's sign now, 0: none
     static volatile String source = "";       // where it came from
     static volatile boolean picked = false;   // from the user's pick (else guessed)
+    static volatile boolean fromWindows = false;   // read in VietMap's windows (they are read once a second)
 
     // the car's answers (CarLink)
     static volatile String carAddr = null;
@@ -168,6 +169,11 @@ final class Engine {
             }
             if (best != null) { n = best.number; src = best.shortId(); }
         }
+        boolean win = false;
+        if (n > 0) {
+            synchronized (LOCK) { for (Item it : windowItems) { if (it.number == n && src.equals(it.shortId())) { win = true; break; } } }
+        }
+        fromWindows = win;
         limit = n;
         source = src;
         picked = byPick;
@@ -176,7 +182,11 @@ final class Engine {
 
     /** What goes to the car: a test sign while one runs, else VietMap's. */
     static int outgoing() {
-        if (testLimit > 0 && System.currentTimeMillis() < testUntil) return testLimit;
+        long now = System.currentTimeMillis();
+        if (testLimit > 0 && now < testUntil) return testLimit;
+        // a sign from VietMap's windows not read again for 5 s (the reader stopped, or hangs): none,
+        // never an old one sent as if new
+        if (fromWindows && now - scanAt > 5000) return 0;
         return limit;
     }
     static boolean testing() { return testLimit > 0 && System.currentTimeMillis() < testUntil; }

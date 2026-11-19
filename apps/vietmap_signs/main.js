@@ -19,7 +19,7 @@ const mgu = require('./kit/mgu');
 const G = require('./kit/gauges');
 const { Canvas } = require('./kit/canvas');
 const UI = require('./ui');
-const { readStatus, report, RUN_APP } = require('./status');
+const { readStatus, report, RUN_APP, speedStamp } = require('./status');
 
 /** A small file into the helper's folder for this app in RAM; false when it is not there (helper not running). */
 function putRam(name, data) {
@@ -131,7 +131,7 @@ mgu.run({
 
         // --- the car's speed, for the helper's warning above the sign: only while the helper has none of its
         // own (it reads the car's speed itself as root; speed_own in its status), into RAM, up to 4 times a second ---
-        let speed = null, speedAt = 0, speedSaved = 0, speedNeeded = false, neededAt = 0;
+        let speed = null, speedAt = 0, heardAt = 0, speedSaved = 0, speedNeeded = false, neededAt = 0;
         const helperNeedsSpeed = () => {
             const now = Date.now();
             if (now - neededAt < 1000) return speedNeeded;
@@ -151,12 +151,18 @@ mgu.run({
                 const raw = v && v.speedVehicleCentreOfGravity;
                 if (!Number.isFinite(raw) || raw === 65535) return;
                 speed = Math.round(raw * 0.015625 * 10) / 10;       // BMW's scaling, km/h
-                speedAt = Date.now();
+                speedAt = heardAt = Date.now();
                 saveSpeed();
             },
         }, log).then((sub) => { if (sub.error) log.warn('speed: ' + sub.error); }).catch((e) => log.warn('speed: ' + e));
-        // a car standing still sends no new speed: the last one again, so the helper knows it is current
-        setInterval(() => { if (speed !== null) { speedAt = Date.now(); saveSpeed(); } }, 1000);
+        // a car standing still sends no new speed: the last one again, so the helper knows it is current -
+        // only a standstill one, for a minute (speedStamp); a moving speed that stops coming goes stale
+        setInterval(() => {
+            const at = speedStamp(speed, heardAt, Date.now());
+            if (at === null) return;
+            speedAt = at;
+            saveSpeed();
+        }, 1000);
 
         const render = async () => {
             const want = { on: settings.get('mode') !== 'off', show: settings.get('show') };

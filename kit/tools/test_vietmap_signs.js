@@ -552,6 +552,20 @@ fs.mkdirSync(out); fs.writeFileSync(out + '/' + i.replace(/\\./g, '_') + '.json'
     assert.strictEqual(fs.readFileSync(path.join(T, 'victim'), 'utf8'), 'keep', 'not through a link');
     assert.strictEqual(JSON.parse(fs.readFileSync(path.join(ramDir, 'pair.json'), 'utf8')).code, code2);
 
+    // --- the app's speed refresh: a moving speed that stops coming is never kept as new ---
+    const { speedStamp } = require('../../apps/vietmap_signs/status');
+    const t1 = Date.now();
+    assert.strictEqual(speedStamp(100, t1 - 60000, t1), null, '100 km/h a minute old: not given again');
+    assert.strictEqual(speedStamp(100, t1 - 1500, t1), null, 'a moving speed: only as it comes');
+    assert.strictEqual(speedStamp(0, t1 - 30000, t1), t1, 'standing still: given again');
+    assert.strictEqual(speedStamp(2, t1 - 61000, t1), null, 'standing still, but nothing for over a minute');
+    assert.strictEqual(speedStamp(null, t1, t1), null);
+    // ...and at the helper: the app's file, last heard 100 a minute ago, warns of nothing
+    fs.writeFileSync(path.join(ramDir, 'speed.json'), JSON.stringify({ at: new Date(t1 - 60000).toISOString(), kmh: 100 }));
+    C.speed = null; C.speedAt = 0;
+    assert.strictEqual(vms.carSpeed(Date.now()), null);
+    fs.unlinkSync(path.join(ramDir, 'speed.json'));
+
     console.log('vietmap-signs: all checks passed');
     process.exit(0);
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -127,6 +127,8 @@ public class SignReaderService extends AccessibilityService {
         setKeepOn(false);
         setDim(false, null);
         running = null;
+        // what was read in VietMap's windows goes with the service: no old sign stays to be sent
+        Engine.setWindowItems(this, new ArrayList<Engine.Item>(), new java.util.LinkedHashSet<String>());
         CarLink.get(this).stop();
         super.onDestroy();
     }
