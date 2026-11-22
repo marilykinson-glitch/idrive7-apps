@@ -17,6 +17,7 @@ module.exports = {
         { addr: 0x30, dtcs: [f('4823E8', 0x0C)] },
         { addr: 0x78, dtcs: [f('8012C0', 0x08)] },
         { addr: 0x18, dtcs: [f('231802', 0x20)] },
+        { addr: 0x37, dtcs: [f('023703', 0x09), f('023704', 0x09), f('031D06', 0x09), f('031D7E', 0x09), f('031D83', 0x09), f('031D8D', 0x09)] },
         { addr: 0x5D, dtcs: [f('800A05', 0x28, 'info')] },
         { addr: 0x01, dtcs: [] }, { addr: 0x06, dtcs: [] }, { addr: 0x08, dtcs: [] }, { addr: 0x0D, dtcs: [] },
         { addr: 0x10, dtcs: [] }, { addr: 0x1D, dtcs: [] }, { addr: 0x20, dtcs: [] }, { addr: 0x21, dtcs: [] },

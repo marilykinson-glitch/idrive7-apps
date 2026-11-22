@@ -466,5 +466,12 @@
   "day": "ngày",
   "days": "ngày",
   "hour": "giờ",
-  "hours": "giờ"
+  "hours": "giờ",
+  "RAM audio": "Mô-đun âm thanh RAM",
+  "External SWT test condition not fulfilled": "Điều kiện kiểm tra SWT bên ngoài chưa được đáp ứng",
+  "Internal SWT check unsuccessful": "Kiểm tra SWT nội bộ không thành công",
+  "Front right speaker output lines: Disconnected line": "Loa trước bên phải: đứt dây tín hiệu đầu ra",
+  "Tweeter, rear left 2, speaker output lines: Cable interruption": "Loa tweeter phía sau bên trái số 2: đứt dây tín hiệu",
+  "Tweeter, rear right 2, speaker output lines: Cable interruption": "Loa tweeter phía sau bên phải số 2: đứt dây tín hiệu",
+  "Tweeter, rear left, speaker output lines: Cable interruption": "Loa tweeter phía sau bên trái: đứt dây tín hiệu"
 }
