@@ -61,6 +61,56 @@ const variant = (a) => {
     const v = ids[hex(a)] ? SGBD[hex(a) + ' ' + ids[hex(a)]] : null;
     return v && /^[A-Za-z0-9_]+$/.test(v) ? v : null;
 };
+// SGBD variants identify the actual ECU type and remain useful when a different
+// BMW model puts that ECU at a different diagnostic address. The bundled fault
+// catalog contains the variant IDs but not BMW's unit_names.json, so name common
+// ECU families here and retain the exact variant in the fallback label when unknown.
+const ECU_FAMILY_VI = {
+    ACSM: 'Túi khí ACSM', ADCAM: 'Camera hỗ trợ lái', ICAM: 'Camera xe ICAM', AHM: 'Kéo moóc AHM',
+    AMP: 'Âm thanh AMP', AMPH: 'Âm thanh AMPH', AMPT: 'Âm thanh AMPT',
+    ATM: 'Viễn thông ATM', BAT: 'Pin BAT', BATT: 'Pin BATT', BCP: 'Điều khiển pin BCP',
+    BDC: 'Thân xe BDC', BFH: 'Cửa BFH', BFS: 'Cửa BFS',
+    CAS: 'Truy cập và khởi động CAS', CCU: 'Điều khiển trung tâm CCU', CDM: 'Điều khiển trung tâm CDM',
+    CID: 'Màn hình CID', CIC: 'Thông tin giải trí CIC', CICM: 'Thông tin giải trí CICM',
+    DCS: 'Camera tài xế', DME: 'Động cơ DME', DKG: 'Hộp số ly hợp kép DKG',
+    DSC: 'Phanh DSC', DWA: 'Chống trộm DWA',
+    EHC: 'Treo tự cân bằng EHC', EKP: 'Bơm nhiên liệu EKP', ELV: 'Khóa cổ lái ELV',
+    EME: 'Truyền động điện EME', EMF: 'Phanh đỗ điện EMF', EPS: 'Trợ lực lái EPS',
+    FAS: 'Hỗ trợ lái FAS',
+    FEM: 'Thân xe FEM', FLA: 'Chiếu sáng xa FLA', FLE: 'Đèn trước FLE',
+    FLM: 'Đèn trước FLM', FRM: 'Khoang chân FRM', FRR: 'Radar trước FRR',
+    FZD: 'Trần xe FZD', GS: 'Hộp số GS', GWS: 'Chọn số GWS', HKFM: 'Cửa hậu HKFM',
+    HU: 'Màn hình giải trí HU', HUD: 'Hiển thị kính lái HUD', HVS: 'Pin cao áp HVS',
+    ICAM2: 'Camera xe ICAM', ICM: 'Khung gầm ICM', IHKA: 'Điều hòa IHKA',
+    KAFAS: 'Camera KAFAS', KLE: 'Sạc trên xe KLE', KOMB: 'Đồng hồ KOMB', KOMBI: 'Đồng hồ KOMBI',
+    LMV: 'Thân xe LMV', MGU: 'Thông tin giải trí MGU', MEVD: 'Động cơ MEVD',
+    MRR: 'Radar tầm trung MRR', MSD: 'Động cơ MSD', MSV: 'Động cơ MSV',
+    NBT: 'Thông tin giải trí NBT', NBTEVO: 'Thông tin giải trí NBT EVO', NIVI: 'Quan sát ban đêm NIVI',
+    OBC: 'Sạc trên xe OBC', PDC: 'Cảm biến đỗ xe PDC', PMA: 'Hỗ trợ đỗ xe PMA',
+    RAD: 'Bộ thu thanh RAD', RAM: 'Âm thanh RAM', RDC: 'Áp suất lốp RDC',
+    REM: 'Thân xe phía sau REM', RSE: 'Giải trí hàng ghế sau RSE',
+    SAS: 'Cảm biến lái SAS', SME: 'Pin cao áp SME', SPNM: 'Ghế SPNM',
+    SRR: 'Radar góc SRR', SVT: 'Cấu hình xe SVT', SZL: 'Công tắc cột lái SZL',
+    TCB: 'Viễn thông TCB', TFM: 'Bình nhiên liệu TFM', TMS: 'Đèn TMS',
+    TRSVC: 'Camera lùi TRSVC', TSG: 'Cửa kính TSG', TVM: 'Video TVM',
+    USS: 'Cảm biến đỗ xe', VDP: 'Giảm chấn VDP', ZBE: 'Giao diện trung tâm ZBE',
+    VIP: 'Giao tiếp xe VIP', ZGW: 'Cổng xe ZGW',
+};
+const variantUnitName = (v) => {
+    if (!v) return null;
+    const id = v.toUpperCase();
+    const family = Object.keys(ECU_FAMILY_VI).sort((a, b) => b.length - a.length).find((x) => id.startsWith(x));
+    if (family === 'SRR') {
+        const position = { '_VR': 'trước phải', '_VL': 'trước trái', '_HR': 'sau phải', '_HL': 'sau trái' };
+        const suffix = Object.keys(position).find((x) => id.endsWith(x));
+        if (suffix) return 'Radar ' + position[suffix];
+    }
+    if (family === 'FLM' || family === 'FLE') {
+        if (id.endsWith('_L')) return 'Đèn trước trái';
+        if (id.endsWith('_R')) return 'Đèn trước phải';
+    }
+    return family ? ECU_FAMILY_VI[family] : 'Hộp điều khiển BMW ' + id;
+};
 // Normalize legacy German names, but preserve Unicode from translated/OEM text.
 const ascii = (s) => String(s).replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/Ä/g, 'Ae')
     .replace(/Ö/g, 'Oe').replace(/Ü/g, 'Ue').replace(/ß/g, 'ss').replace(/[\x00-\x1f\x7f]/g, '');
@@ -96,9 +146,11 @@ function describe(addr, rawCode) {
 // a unit the database identified is named by what it is (same on every model); else the address table
 const ecuName = (a) => {
     const v = variant(a);
-    const raw = (v && UNIT_NAMES[v] && ascii(UNIT_NAMES[v])) || ECU[a] || v || ('ECU 0x' + hex(a));
+    const named = v && UNIT_NAMES[v] && ascii(UNIT_NAMES[v]);
+    if (getLanguage() === 'vi' && v) return named || variantUnitName(v);
+    const raw = named || ECU[a] || v || ('ECU 0x' + hex(a));
     const localized = translateUI(raw);
-    return localized !== raw ? localized : (getLanguage() === 'vi' ? 'Hộp điều khiển 0x' + hex(a) : raw);
+    return localized !== raw ? localized : (getLanguage() === 'vi' ? (v ? variantUnitName(v) : 'Hộp điều khiển 0x' + hex(a)) : raw);
 };
 
 mgu.run({
