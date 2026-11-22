@@ -1,0 +1,162 @@
+{
+  "id": "mgu_diagnostics",
+  "title": "MGU Diagnostics",
+  "description": "Quét lỗi tất cả hộp điều khiển BMW, xem thông báo xe và lưu báo cáo trước khi xóa lỗi",
+  "version": "0.1.0",
+  "vendor": "custom",
+  "loggingId": "OA95",
+  "iconGlyph": "engine",
+  "signals": {
+    "com.harman.infotainment.systemfunctions.tasu.tasu.InternalTasu": {
+      "_instances": "SystemFunctionsInternalTasuInst1",
+      "_methods": [
+        "sendTasuRequest"
+      ],
+      "_broadcasts": [
+        "sendTasuResponse"
+      ]
+    },
+    "de.bmw.infotainment.checkcontrol.CheckControlMaster": {
+      "basicList": "rs"
+    },
+    "de.bmw.infotainment.KombiInterface_2": {
+      "ccList": "rs",
+      "newCCMessage": "rs"
+    }
+  },
+  "screens": [
+    {
+      "name": "MAIN",
+      "kind": "canvas",
+      "title": "MGU Diagnostics",
+      "buttons": [
+        [
+          "BTN_SCAN",
+          "Quét lỗi"
+        ],
+        [
+          "BTN_CLEAR",
+          "Xóa lỗi"
+        ],
+        [
+          "BTN_PAGE",
+          "Trang tiếp"
+        ],
+        [
+          "BTN_REPORT",
+          "Lưu báo cáo"
+        ],
+        [
+          "BTN_SETTINGS",
+          "Cài đặt"
+        ]
+      ]
+    }
+  ],
+  "settings": [
+    {
+      "key": "scope",
+      "label": "Phạm vi mã lỗi",
+      "type": "choice",
+      "default": "current",
+      "options": [
+        [
+          "current",
+          "Đang lưu"
+        ],
+        [
+          "all",
+          "Kèm lịch sử"
+        ]
+      ]
+    },
+    {
+      "key": "info",
+      "label": "Đọc thêm bộ nhớ thông tin",
+      "type": "bool",
+      "default": false
+    },
+    {
+      "key": "autoScan",
+      "label": "Tự quét khi mở ứng dụng",
+      "type": "bool",
+      "default": true
+    },
+    {
+      "key": "theme",
+      "label": "Màu giao diện",
+      "type": "choice",
+      "default": "m_tricolour",
+      "options": [
+        [
+          "m_red",
+          "Đỏ BMW"
+        ],
+        [
+          "m_tricolour",
+          "Ba màu M"
+        ],
+        [
+          "ice",
+          "Trắng băng"
+        ],
+        [
+          "amber",
+          "Hổ phách đêm"
+        ]
+      ]
+    },
+    {
+      "key": "layout",
+      "label": "Bố cục màn hình",
+      "type": "choice",
+      "default": "full",
+      "options": [
+        [
+          "full",
+          "Toàn màn hình"
+        ],
+        [
+          "standard",
+          "Tiêu chuẩn"
+        ]
+      ]
+    },
+    {
+      "key": "renderer",
+      "label": "Bộ dựng giao diện",
+      "type": "choice",
+      "default": "auto",
+      "options": [
+        [
+          "auto",
+          "GPU 60 fps (mặc định)"
+        ],
+        [
+          "software",
+          "Phần mềm"
+        ]
+      ]
+    },
+    {
+      "key": "demo",
+      "label": "Dữ liệu mô phỏng",
+      "type": "choice",
+      "default": "auto",
+      "options": [
+        [
+          "auto",
+          "Tự động"
+        ],
+        [
+          "on",
+          "Luôn bật"
+        ],
+        [
+          "off",
+          "Tắt"
+        ]
+      ]
+    }
+  ]
+}
