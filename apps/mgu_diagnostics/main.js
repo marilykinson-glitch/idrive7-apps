@@ -69,6 +69,11 @@ const ascii = (s) => String(s).replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace
 const FAMILY = {
     '23:D1C604': 'Assist sensors: Unexpected Ethernet communication/link',
     '61:03178A': 'Telematics: Mobile network connection limited',
+    // BMW descriptions for RAM audio speaker faults, used when the ECU type reply is unavailable.
+    '37:031D06': 'Front right speaker output lines: Disconnected line',
+    '37:031D7E': 'Tweeter, rear left 2, speaker output lines: Cable interruption',
+    '37:031D83': 'Tweeter, rear right 2, speaker output lines: Cable interruption',
+    '37:031D8D': 'Tweeter, rear left, speaker output lines: Cable interruption',
 };
 function describe(addr, rawCode) {
     const code = String(rawCode).trim().toUpperCase().replace(/^0X/, '').padStart(6, '0');
@@ -316,7 +321,7 @@ mgu.run({
             const stamp = new Date().toISOString().replace(/[:.]/g, '-');
             const file = path.join(dir, 'mgu-diagnostics-' + stamp + '.json');
             const report = {
-                app: 'MGU Diagnostics', version: '0.1.0', createdAt: new Date().toISOString(), reason: tag || 'Người dùng lưu báo cáo',
+                app: 'MGU Diagnostics', version: '0.1.1', createdAt: new Date().toISOString(), reason: tag || 'Người dùng lưu báo cáo',
                 source: scan.demo ? 'demo' : 'vehicle', scanAt: new Date(scan.at).toISOString(),
                 controlUnits: scan.ecus.map((e) => ({ address: '0x' + hex(e.addr), name: ecuName(e.addr),
                     faults: e.dtcs.map((d) => ({ code: d.code, status: d.status, memory: d.mem, description: describe(e.addr, d.code) ? diagnosticText(describe(e.addr, d.code)) : null })) })),
