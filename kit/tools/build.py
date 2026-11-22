@@ -499,8 +499,8 @@ def build(app_id, language='en', preview_only=False, plain_version=False, langua
             shutil.copy(os.path.join(adir, f), os.path.join(src, 'javascript', f))
             print('  %s (committed)' % f)
     # kit runtime
-    if app_id == 'dtc_scanner' and language in ('zh-CN', 'ru'):
-        module = 'build_diagnostic_zh' if language == 'zh-CN' else 'build_diagnostic_ru'
+    if app_id in ('dtc_scanner', 'mgu_diagnostics') and language in ('zh-CN', 'ru', 'vi'):
+        module = {'zh-CN': 'build_diagnostic_zh', 'ru': 'build_diagnostic_ru', 'vi': 'build_diagnostic_vi'}[language]
         catalog = __import__(module).catalog
         with tempfile.TemporaryDirectory(prefix='mgu-diagnostic-') as temporary:
             data = os.path.join(temporary, language + '.json')

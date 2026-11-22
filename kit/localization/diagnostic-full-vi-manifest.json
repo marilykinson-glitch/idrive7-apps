@@ -1,0 +1,15 @@
+{
+  "date": "2026-11-22",
+  "database_sha256": "206da522f83c48539eb9ac0ee02d7c859a7080b0b1c50cf76df05451a3930c55",
+  "database_unique": 86735,
+  "translated_prose": 86716,
+  "preserved_identifier_only": 19,
+  "method": "offline English-to-Vietnamese OPUS-MT translation with Vietnamese diagnostic overrides and BMW terminology normalization",
+  "model_repo": "Helsinki-NLP/opus-mt-en-vi",
+  "model_revision": "989c9fb9ec63987901022baf0182dcec3e149be6",
+  "model_license": "Apache-2.0; model weights are not shipped",
+  "conversion_source": "Unbakedcookie/live-translator-models@main (CTranslate2 float16 archive)",
+  "conversion_archive_sha256": "6ca39bfc97410b3968434617f71af94d395df593002af52501bc4dbc2d511d80",
+  "hex_ids_lost": 0,
+  "review_status": "offline machine translation; structural audits passed; not individually human reviewed"
+}

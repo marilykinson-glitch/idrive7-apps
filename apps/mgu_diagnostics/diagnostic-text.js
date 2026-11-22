@@ -12,8 +12,8 @@ function diagnosticText(value) {
         const n = Number(ambiguous[1]);
         return n + ' ' + plural(n, 'possible texts (depends on unit type)', 'possible texts (depends on unit type)');
     }
-    if ((language === 'zh-CN' || language === 'ru') && !db) db = require('./kit/pack').open(path.join(__dirname, 'diagnostic_i18n'));
-    if (language === 'vi') return dict[source] || 'Mô tả gốc: ' + source;
+    if ((language === 'zh-CN' || language === 'ru' || language === 'vi') && !db) db = require('./kit/pack').open(path.join(__dirname, 'diagnostic_i18n'));
+    if (language === 'vi') return db.get('vi.json', source) || dict[source] || 'Mô tả gốc: ' + source;
     return !db ? source : db.get(language + '.json', source) || dict[source] || source;
 }
 module.exports = { diagnosticText };
