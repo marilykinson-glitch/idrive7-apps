@@ -61,6 +61,56 @@ const variant = (a) => {
     const v = ids[hex(a)] ? SGBD[hex(a) + ' ' + ids[hex(a)]] : null;
     return v && /^[A-Za-z0-9_]+$/.test(v) ? v : null;
 };
+// SGBD variants identify the actual ECU type and remain useful when a different
+// BMW model puts that ECU at a different diagnostic address. The bundled fault
+// catalog contains the variant IDs but not BMW's unit_names.json, so name common
+// ECU families here and retain the exact variant in the fallback label when unknown.
+const ECU_FAMILY_VI = {
+    ACSM: 'Túi khí ACSM', ADCAM: 'Camera hỗ trợ lái', ICAM: 'Camera xe ICAM', AHM: 'Kéo moóc AHM',
+    AMP: 'Âm thanh AMP', AMPH: 'Âm thanh AMPH', AMPT: 'Âm thanh AMPT',
+    ATM: 'Viễn thông ATM', BAT: 'Pin BAT', BATT: 'Pin BATT', BCP: 'Điều khiển pin BCP',
+    BDC: 'Thân xe BDC', BFH: 'Cửa BFH', BFS: 'Cửa BFS',
+    CAS: 'Truy cập và khởi động CAS', CCU: 'Điều khiển trung tâm CCU', CDM: 'Điều khiển trung tâm CDM',
+    CID: 'Màn hình CID', CIC: 'Thông tin giải trí CIC', CICM: 'Thông tin giải trí CICM',
+    DCS: 'Camera tài xế', DME: 'Động cơ DME', DKG: 'Hộp số ly hợp kép DKG',
+    DSC: 'Phanh DSC', DWA: 'Chống trộm DWA',
+    EHC: 'Treo tự cân bằng EHC', EKP: 'Bơm nhiên liệu EKP', ELV: 'Khóa cổ lái ELV',
+    EME: 'Truyền động điện EME', EMF: 'Phanh đỗ điện EMF', EPS: 'Trợ lực lái EPS',
+    FAS: 'Hỗ trợ lái FAS',
+    FEM: 'Thân xe FEM', FLA: 'Chiếu sáng xa FLA', FLE: 'Đèn trước FLE',
+    FLM: 'Đèn trước FLM', FRM: 'Khoang chân FRM', FRR: 'Radar trước FRR',
+    FZD: 'Trần xe FZD', GS: 'Hộp số GS', GWS: 'Chọn số GWS', HKFM: 'Cửa hậu HKFM',
+    HU: 'Màn hình giải trí HU', HUD: 'Hiển thị kính lái HUD', HVS: 'Pin cao áp HVS',
+    ICAM2: 'Camera xe ICAM', ICM: 'Khung gầm ICM', IHKA: 'Điều hòa IHKA',
+    KAFAS: 'Camera KAFAS', KLE: 'Sạc trên xe KLE', KOMB: 'Đồng hồ KOMB', KOMBI: 'Đồng hồ KOMBI',
+    LMV: 'Thân xe LMV', MGU: 'Thông tin giải trí MGU', MEVD: 'Động cơ MEVD',
+    MRR: 'Radar tầm trung MRR', MSD: 'Động cơ MSD', MSV: 'Động cơ MSV',
+    NBT: 'Thông tin giải trí NBT', NBTEVO: 'Thông tin giải trí NBT EVO', NIVI: 'Quan sát ban đêm NIVI',
+    OBC: 'Sạc trên xe OBC', PDC: 'Cảm biến đỗ xe PDC', PMA: 'Hỗ trợ đỗ xe PMA',
+    RAD: 'Bộ thu thanh RAD', RAM: 'Âm thanh RAM', RDC: 'Áp suất lốp RDC',
+    REM: 'Thân xe phía sau REM', RSE: 'Giải trí hàng ghế sau RSE',
+    SAS: 'Cảm biến lái SAS', SME: 'Pin cao áp SME', SPNM: 'Ghế SPNM',
+    SRR: 'Radar góc SRR', SVT: 'Cấu hình xe SVT', SZL: 'Công tắc cột lái SZL',
+    TCB: 'Viễn thông TCB', TFM: 'Bình nhiên liệu TFM', TMS: 'Đèn TMS',
+    TRSVC: 'Camera lùi TRSVC', TSG: 'Cửa kính TSG', TVM: 'Video TVM',
+    USS: 'Cảm biến đỗ xe', VDP: 'Giảm chấn VDP', ZBE: 'Giao diện trung tâm ZBE',
+    VIP: 'Giao tiếp xe VIP', ZGW: 'Cổng xe ZGW',
+};
+const variantUnitName = (v) => {
+    if (!v) return null;
+    const id = v.toUpperCase();
+    const family = Object.keys(ECU_FAMILY_VI).sort((a, b) => b.length - a.length).find((x) => id.startsWith(x));
+    if (family === 'SRR') {
+        const position = { '_VR': 'trước phải', '_VL': 'trước trái', '_HR': 'sau phải', '_HL': 'sau trái' };
+        const suffix = Object.keys(position).find((x) => id.endsWith(x));
+        if (suffix) return 'Radar ' + position[suffix];
+    }
+    if (family === 'FLM' || family === 'FLE') {
+        if (id.endsWith('_L')) return 'Đèn trước trái';
+        if (id.endsWith('_R')) return 'Đèn trước phải';
+    }
+    return family ? ECU_FAMILY_VI[family] : 'Hộp điều khiển BMW ' + id;
+};
 // Normalize legacy German names, but preserve Unicode from translated/OEM text.
 const ascii = (s) => String(s).replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/Ä/g, 'Ae')
     .replace(/Ö/g, 'Oe').replace(/Ü/g, 'Ue').replace(/ß/g, 'ss').replace(/[\x00-\x1f\x7f]/g, '');
@@ -96,10 +146,75 @@ function describe(addr, rawCode) {
 // a unit the database identified is named by what it is (same on every model); else the address table
 const ecuName = (a) => {
     const v = variant(a);
-    const raw = (v && UNIT_NAMES[v] && ascii(UNIT_NAMES[v])) || ECU[a] || v || ('ECU 0x' + hex(a));
+    const named = v && UNIT_NAMES[v] && ascii(UNIT_NAMES[v]);
+    if (getLanguage() === 'vi' && v) return named || variantUnitName(v);
+    const raw = named || ECU[a] || v || ('ECU 0x' + hex(a));
     const localized = translateUI(raw);
-    return localized !== raw ? localized : (getLanguage() === 'vi' ? 'Hộp điều khiển 0x' + hex(a) : raw);
+    return localized !== raw ? localized : (getLanguage() === 'vi' ? (v ? variantUnitName(v) : 'Hộp điều khiển 0x' + hex(a)) : raw);
 };
+// Names in the fault list have a narrow column. Use stable, recognizable ECU family labels there
+// instead of ellipsizing BMW's often verbose unit_names strings. Keep ecuName() full for reports
+// and status messages. If the SGBD is unavailable, the short address fallback is still explicit.
+const ECU_SHORT = {
+    ACSM: ['Túi khí ACSM', 'Airbag ACSM'], ADCAM: ['Camera hỗ trợ lái', 'Driver camera'], ICAM: ['Camera ICAM', 'ICAM camera'],
+    AHM: ['Kéo moóc AHM', 'Trailer AHM'], AMP: ['Âm thanh AMP', 'Audio AMP'], AMPH: ['Âm thanh AMP', 'Audio AMP'], AMPT: ['Âm thanh AMP', 'Audio AMP'],
+    ATM: ['Viễn thông ATM', 'Telematics ATM'], TCB: ['Viễn thông TCB', 'Telematics TCB'], BAT: ['Pin BAT', 'Battery BAT'], BATT: ['Pin BAT', 'Battery BAT'], BCP: ['Pin BCP', 'Battery control'],
+    BDC: ['Thân xe BDC', 'Body BDC'], FEM: ['Thân xe FEM', 'Body FEM'], REM: ['Thân xe REM', 'Rear body REM'], BFH: ['Cửa BFH', 'Door BFH'], BFS: ['Cửa BFS', 'Door BFS'],
+    CAS: ['Khởi động CAS', 'Start CAS'], CCU: ['Điều khiển CCU', 'Central control CCU'], CDM: ['Điều khiển CDM', 'Central control CDM'],
+    CID: ['Màn hình CID', 'Display CID'], CIC: ['Giải trí CIC', 'Infotainment CIC'], CICM: ['Giải trí CICM', 'Infotainment CICM'], NBT: ['Giải trí NBT', 'Infotainment NBT'], NBTEVO: ['Giải trí NBT EVO', 'Infotainment NBT EVO'],
+    DCS: ['Camera tài xế', 'Driver camera'], DME: ['Động cơ DME', 'Engine DME'], MEVD: ['Động cơ MEVD', 'Engine MEVD'], DKG: ['Hộp số DKG', 'Gearbox DKG'], DSC: ['Phanh DSC', 'Brakes DSC'], DWA: ['Chống trộm DWA', 'Alarm DWA'],
+    EHC: ['Treo EHC', 'Suspension EHC'], EKP: ['Bơm xăng EKP', 'Fuel pump EKP'], ELV: ['Khóa lái ELV', 'Steering lock ELV'], EME: ['Mô-tơ EME', 'E-motor EME'], EMF: ['Phanh đỗ EMF', 'Parking brake EMF'], EPS: ['Trợ lực lái EPS', 'Steering EPS'],
+    FAS: ['Hỗ trợ lái FAS', 'Driver assist FAS'], FLA: ['Đèn pha FLA', 'High beam FLA'], FLE: ['Đèn trước', 'Headlight'], FLM: ['Đèn trước', 'Headlight'], FRM: ['Đèn và thân xe FRM', 'Footwell FRM'], FRR: ['Radar trước FRR', 'Front radar FRR'],
+    FZD: ['Trần xe FZD', 'Roof FZD'], GS: ['Hộp số GS', 'Gearbox GS'], GWS: ['Chọn số GWS', 'Gear selector GWS'], HKFM: ['Cửa hậu HKFM', 'Tailgate HKFM'], HU: ['Màn hình HU', 'Head unit HU'], HUD: ['Kính lái HUD', 'Head-up display'],
+    HVS: ['Pin cao áp HVS', 'High-voltage battery'], ICM: ['Khung gầm ICM', 'Chassis ICM'], IHKA: ['Điều hòa IHKA', 'Climate IHKA'], KAFAS: ['Camera KAFAS', 'KAFAS camera'], KLE: ['Sạc KLE', 'Charger KLE'], KOMB: ['Đồng hồ KOMBI', 'Cluster KOMBI'], KOMBI: ['Đồng hồ KOMBI', 'Cluster KOMBI'],
+    MGU: ['Màn hình MGU', 'Head unit MGU'], MRR: ['Radar MRR', 'Radar MRR'], MSD: ['Động cơ MSD', 'Engine MSD'], MSV: ['Động cơ MSV', 'Engine MSV'], NIVI: ['Camera đêm NIVI', 'Night vision NIVI'], OBC: ['Sạc OBC', 'Charger OBC'],
+    PDC: ['Cảm biến đỗ PDC', 'Parking sensors PDC'], PMA: ['Hỗ trợ đỗ PMA', 'Parking assist PMA'], RAD: ['Radio RAD', 'Radio RAD'], RAM: ['Âm thanh RAM', 'Audio RAM'], RDC: ['Áp suất lốp RDC', 'Tyre pressure RDC'], RSE: ['Giải trí sau RSE', 'Rear entertainment RSE'],
+    SAS: ['Cảm biến lái SAS', 'Steering sensor SAS'], SME: ['Pin cao áp SME', 'High-voltage battery SME'], SPNM: ['Ghế SPNM', 'Seat SPNM'], SRR: ['Radar góc', 'Corner radar'], SVT: ['Cấu hình xe SVT', 'Vehicle order SVT'], SZL: ['Công tắc lái SZL', 'Steering switch SZL'],
+    TFM: ['Bình xăng TFM', 'Fuel tank TFM'], TMS: ['Đèn TMS', 'Light TMS'], TRSVC: ['Camera lùi', 'Reversing camera'], TSG: ['Cửa kính TSG', 'Window TSG'], TVM: ['Video TVM', 'Video TVM'], USS: ['Cảm biến đỗ xe', 'Parking sensors'], VDP: ['Giảm chấn VDP', 'Dampers VDP'], ZBE: ['Giao diện ZBE', 'Interface ZBE'], VIP: ['Giao tiếp VIP', 'Vehicle interface VIP'], ZGW: ['Cổng trung tâm ZGW', 'Central gateway ZGW'],
+};
+const ECU_ADDR_SHORT = {
+    0x01: ['Túi khí ACSM', 'Airbag ACSM'], 0x06: ['Camera ICAM', 'ICAM camera'], 0x07: ['Pin cao áp SME', 'HV battery SME'],
+    0x08: ['Radar góc SRR', 'Corner radar SRR'], 0x0D: ['Cửa hậu HKFM', 'Tailgate HKFM'], 0x10: ['Thân xe BDC', 'Body gateway BDC'],
+    0x12: ['Động cơ DME', 'Engine DME'], 0x13: ['Động cơ DME 2', 'Engine DME 2'], 0x14: ['Sạc OBC', 'Charger OBC'],
+    0x18: ['Hộp số EGS', 'Gearbox EGS'], 0x1D: ['Bình xăng TFM', 'Fuel tank TFM'], 0x20: ['Radar góc SRR', 'Corner radar SRR'],
+    0x21: ['Radar trước FRR', 'Front radar FRR'], 0x23: ['Cảm biến lái SAS', 'Steering sensors SAS'],
+    0x28: ['Radar góc SRR', 'Corner radar SRR'], 0x29: ['Phanh DSC', 'Brakes DSC'], 0x2A: ['Radar góc SRR', 'Corner radar SRR'],
+    0x2C: ['Cảm biến đỗ xe', 'Parking sensors'], 0x30: ['Trợ lực lái EPS', 'Steering EPS'], 0x37: ['Âm thanh RAM', 'Audio RAM'],
+    0x38: ['xDrive VTG', 'xDrive VTG'], 0x39: ['Trợ lực phanh DSC', 'Brake booster DSC'], 0x3A: ['Mô-tơ EME', 'E-motor EME'],
+    0x40: ['Thân xe BDC', 'Body BDC'], 0x43: ['Đèn trước FLM', 'Headlight FLM'], 0x44: ['Đèn trước FLM', 'Headlight FLM'],
+    0x45: ['Camera tài xế', 'Driver camera'], 0x56: ['Trần xe FZD', 'Roof FZD'], 0x5D: ['Camera KAFAS', 'KAFAS camera'],
+    0x5E: ['Chọn số GWS', 'Gear selector GWS'], 0x60: ['Đồng hồ KOMBI', 'Cluster KOMBI'], 0x61: ['Viễn thông ATM', 'Telematics ATM'],
+    0x63: ['Màn hình HU', 'Head unit HU'], 0x64: ['Cảm biến đỗ PDC', 'Parking sensors PDC'], 0x67: ['Giao diện ZBE', 'Interface ZBE'],
+    0x6D: ['Ghế SM', 'Seat module SM'], 0x76: ['Giảm chấn VDP', 'Dampers VDP'], 0x78: ['Điều hòa IHKA', 'Climate IHKA'],
+};
+const ECU_SHORT_FAMILIES = Object.keys(ECU_SHORT).sort((x, y) => y.length - x.length);
+function ecuListName(a) {
+    const v = variant(a), id = v && v.toUpperCase();
+    if (id) {
+        const family = ECU_SHORT_FAMILIES.find((x) => id.startsWith(x));
+        if (family) {
+            if (family === 'SRR') {
+                const pos = { '_VR': 'trước phải', '_VL': 'trước trái', '_HR': 'sau phải', '_HL': 'sau trái' };
+                const suffix = Object.keys(pos).find((x) => id.endsWith(x));
+                if (suffix) return getLanguage() === 'vi' ? 'Radar ' + pos[suffix] : 'Radar ' + suffix.slice(1);
+            }
+            if ((family === 'FLM' || family === 'FLE') && (id.endsWith('_L') || id.endsWith('_R')))
+                return getLanguage() === 'vi' ? 'Đèn trước ' + (id.endsWith('_L') ? 'trái' : 'phải') : 'Headlight ' + (id.endsWith('_L') ? 'left' : 'right');
+            return ECU_SHORT[family][getLanguage() === 'vi' ? 0 : 1];
+        }
+        return (getLanguage() === 'vi' ? 'Hộp BMW ' : 'BMW ECU ') + id.slice(0, 14);
+    }
+    // Known address aliases are already compact; an unknown address gets a readable ECU label.
+    const addressName = ECU_ADDR_SHORT[a];
+    if (addressName) return addressName[getLanguage() === 'vi' ? 0 : 1];
+    const known = ECU[a];
+    if (known) {
+        const localized = translateUI(known);
+        if (localized !== known) return localized;
+        return known;
+    }
+    return (getLanguage() === 'vi' ? 'Hộp ' : 'ECU ') + '0x' + hex(a);
+}
 
 mgu.run({
     async start(ctx) {
@@ -433,7 +548,7 @@ mgu.run({
                 cv.roundRect(48, y, 170, 34, 6, withAlpha(col, 0.22));
                 cv.text(s.label, 133, y + 25, 20, col, { align: 'center', font: 'bold', spacing: 0.5 });
                 cv.text(d.code, 246, y + 28, 32, t.text, { font: 'bold', spacing: 1 });
-                cv.text(fit(cv, ecuName(d.addr), 26, 680 - 420 - 16), 420, y + 27, 26, t.text);
+                cv.text(fit(cv, ecuListName(d.addr), 26, 680 - 420 - 16), 420, y + 27, 26, t.text);
                 // the fault's text when known (cut to fit)
                 const desc = describe(d.addr, d.code);
                 const txt = desc ? (d.mem === 'info' ? translateUI('INFO: ') : '') + diagnosticText(desc) : d.mem === 'info' ? translateUI('INFO MEMORY') : '';
@@ -455,7 +570,7 @@ mgu.run({
                 if (y + 41 < from || y > to) return;
                 cv.circle(66, y + 18, 9, COL[m.color] || t.dim);
                 cv.text(m.name ? diagnosticText(m.name) : translateUI('Message ') + m.id, 92, y + 27, 28, t.text, { font: 'bold', literal: true });
-                if (m.ecu !== undefined) cv.text(fit(cv, ecuName(m.ecu), 22, 420), 1552, y + 27, 22, t.dim, { align: 'right' });
+                if (m.ecu !== undefined) cv.text(fit(cv, ecuListName(m.ecu), 22, 420), 1552, y + 27, 22, t.dim, { align: 'right' });
                 if (i < rows.length - 1) cv.fillRect(48, y + 40, 1504, 1, withAlpha(t.tick, 0.25));
             }));
             if (l.length > rows.length) cv.text('+ ' + (l.length - rows.length) + ' more', 1552, 506 + dy, 22, t.dim, { align: 'right' });
@@ -475,7 +590,7 @@ mgu.run({
                 const col = act ? t.crit : n ? t.warn : GO;
                 cv.roundRect(x, y, cw, ch - 6, 6, withAlpha(col, 0.12));
                 cv.fillRect(x, y, 5, ch - 6, col);
-                cv.text(fit(cv, ecuName(e.addr), 22, cw - 120, { font: 'bold' }), x + 18, y + (e.nrc ? 23 : 32), 22, t.text, { font: 'bold' });
+                cv.text(fit(cv, ecuListName(e.addr), 22, cw - 120, { font: 'bold' }), x + 18, y + (e.nrc ? 23 : 32), 22, t.text, { font: 'bold' });
                 if (e.nrc) cv.text(NRC[e.nrc] || 'NRC ' + hex(e.nrc), x + 18, y + 44, 20, t.dim);
                 cv.text(n ? n + ' ' + plural(n, 'fault', 'faults') : 'OK', x + cw - 12, y + 32, 22, col, { align: 'right', font: 'bold' });
                 // tapped (or pressed with the controller): the Faults page with this unit's faults alone

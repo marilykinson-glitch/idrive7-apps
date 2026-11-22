@@ -2,7 +2,7 @@
   "id": "mgu_diagnostics",
   "title": "MGU Diagnostics",
   "description": "Quét lỗi tất cả hộp điều khiển BMW, xem thông báo xe và lưu báo cáo trước khi xóa lỗi",
-  "version": "0.1.1",
+  "version": "0.1.5",
   "vendor": "custom",
   "loggingId": "OA95",
   "iconGlyph": "engine",
