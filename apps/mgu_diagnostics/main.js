@@ -360,8 +360,8 @@ mgu.run({
             const targets = scan ? scan.ecus.filter((e) => e.dtcs.some((d) => d.mem === 'fault')) : [];
             if (!targets.length) { msg = scan ? 'Nothing to clear' : 'Scan first, then clear'; changed(); return; }
             if (!clearArmed) {
-                try { const f = writeReport('Trước khi xác nhận xóa bộ nhớ lỗi'); log.info('pre-clear report saved: ' + f); }
-                catch (e) { msg = 'Không lưu được báo cáo; chưa xóa lỗi: ' + e.message; changed(); return; }
+                try { const f = writeReport('Before confirming fault-memory clear'); log.info('pre-clear report saved: ' + f); }
+                catch (e) { msg = 'Could not save report; faults were not cleared: ' + e.message; changed(); return; }
                 clearArmed = setTimeout(() => { clearArmed = null; clearLabel(); }, 5000);
                 msg = 'Clears ' + targets.length + ' ' + plural(targets.length, 'control unit(s) - press again within 5 s', 'control unit(s) - press again within 5 s'); changed();
                 return clearLabel();
@@ -618,7 +618,10 @@ mgu.run({
                     try { const st = fs.statSync(path.join(dir, f)); if (st.isFile()) { reports++; reportBytes += st.size; } } catch (e) {}
                 });
             } catch (e) { log.warn('report inventory: ' + e); }
-            const now = new Date(), time = [now.getHours(), now.getMinutes(), now.getSeconds()].map((x) => String(x).padStart(2, '0')).join(':');
+            const now = new Date(), pad = (x) => String(x).padStart(2, '0');
+            const offset = -now.getTimezoneOffset(), zone = 'UTC' + (offset < 0 ? '-' : '+') + pad(Math.floor(Math.abs(offset) / 60)) + ':' + pad(Math.abs(offset) % 60);
+            const time = [now.getHours(), now.getMinutes(), now.getSeconds()].map(pad).join(':');
+            const date = now.getFullYear() + '.' + pad(now.getMonth() + 1) + '.' + pad(now.getDate());
             const f = faults(), activeFaults = f.filter((d) => d.status & 1).length;
             const used = total ? Math.max(0, total - free) : 0, ramPct = total ? Math.round(used * 100 / total) : 0;
             const days = Math.floor(up / 86400), hours = Math.floor(up % 86400 / 3600), minutes = Math.floor(up % 3600 / 60);
@@ -628,7 +631,7 @@ mgu.run({
                 { label: uiPair('Diagnostic connection', 'Kết nối chẩn đoán'), value: uiPair(diag.available ? 'Ready' : 'Unavailable', diag.available ? 'Sẵn sàng' : 'Chưa kết nối'), color: diag.available ? GO : t.warn, sub: uiPair('Vehicle diagnostic link', 'Đường truyền chẩn đoán xe') },
                 { label: uiPair('Memory in use', 'RAM đang dùng'), value: total ? Math.round(used / 1048576) + ' / ' + Math.round(total / 1048576) + ' MB' : uiPair('Unavailable', 'Không có dữ liệu'), color: ramPct >= 85 ? t.warn : t.accent, sub: total ? ramPct + '% ' + uiPair('used', 'đang dùng') : '' },
                 { label: uiPair('MGU uptime', 'Thời gian MGU hoạt động'), value: uptime, color: t.text, sub: uiPair('Since last restart', 'Từ lần khởi động gần nhất') },
-                { label: uiPair('Current MGU time', 'Giờ hiện tại trên MGU'), value: time, color: t.text, sub: uiPair('System clock', 'Đồng hồ hệ thống') }
+                { label: uiPair('MGU system clock', 'Đồng hồ hệ thống MGU'), value: date + ' ' + time, color: t.text, sub: zone }
             ];
             cards.forEach((c, i) => {
                 const x = 48 + i * (colW + gap);
@@ -714,8 +717,8 @@ mgu.run({
         ui.onClick('BTN_SCAN', () => { doScan(); });
         ui.onClick('BTN_CLEAR', () => { doClear(); });
         ui.onClick('BTN_REPORT', () => {
-            try { const f = writeReport('Người dùng lưu báo cáo'); msg = f ? 'Đã lưu báo cáo chẩn đoán' : 'Hãy quét xe trước khi lưu báo cáo'; log.info('report saved: ' + f); }
-            catch (e) { msg = 'Không lưu được báo cáo: ' + e.message; log.warn('report: ' + e); }
+            try { const f = writeReport('User saved report'); msg = f ? 'Diagnostic report saved' : 'Scan the vehicle before saving a report'; log.info('report saved: ' + f); }
+            catch (e) { msg = 'Could not save report: ' + e.message; log.warn('report: ' + e); }
             changed();
         });
         // on the Faults page where the kit runs the screen
