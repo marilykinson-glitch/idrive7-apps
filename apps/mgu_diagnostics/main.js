@@ -29,6 +29,7 @@ const DEMO = require('./demo');
 
 const W = 1600, H = 520, PER_PAGE = 6;
 const GO = '#2fd27a';
+const uiPair = (en, vi) => getLanguage() === 'en' ? en : vi;
 
 // diagnostic addresses -> control unit (unknown ones show as "ECU 0x..")
 const { ECU } = require('./kit/ecus');
@@ -75,11 +76,11 @@ const ECU_FAMILY_VI = {
     DCS: 'Camera tài xế', DME: 'Động cơ DME', DKG: 'Hộp số ly hợp kép DKG',
     DSC: 'Phanh DSC', DWA: 'Chống trộm DWA',
     EHC: 'Treo tự cân bằng EHC', EKP: 'Bơm nhiên liệu EKP', ELV: 'Khóa cổ lái ELV',
-    EME: 'Truyền động điện EME', EMF: 'Phanh đỗ điện EMF', EPS: 'Trợ lực lái EPS',
-    FAS: 'Hỗ trợ lái FAS',
+    EME: 'Truyền động điện EME', EMF: 'Phanh đỗ điện EMF', EPS: 'Trợ lực lái EPS', EGS: 'Hộp số EGS',
+    FAS: 'Hệ thống hỗ trợ lái FAS',
     FEM: 'Thân xe FEM', FLA: 'Chiếu sáng xa FLA', FLE: 'Đèn trước FLE',
     FLM: 'Đèn trước FLM', FRM: 'Khoang chân FRM', FRR: 'Radar trước FRR',
-    FZD: 'Trần xe FZD', GS: 'Hộp số GS', GWS: 'Chọn số GWS', HKFM: 'Cửa hậu HKFM',
+    FZD: 'Trần xe FZD', GS: 'Hộp số EGS', GWS: 'Cần số GWS', HKFM: 'Cửa hậu HKFM',
     HU: 'Màn hình giải trí HU', HUD: 'Hiển thị kính lái HUD', HVS: 'Pin cao áp HVS',
     ICAM2: 'Camera xe ICAM', ICM: 'Khung gầm ICM', IHKA: 'Điều hòa IHKA',
     KAFAS: 'Camera KAFAS', KLE: 'Sạc trên xe KLE', KOMB: 'Đồng hồ KOMB', KOMBI: 'Đồng hồ KOMBI',
@@ -163,9 +164,9 @@ const ECU_SHORT = {
     CAS: ['Khởi động CAS', 'Start CAS'], CCU: ['Điều khiển CCU', 'Central control CCU'], CDM: ['Điều khiển CDM', 'Central control CDM'],
     CID: ['Màn hình CID', 'Display CID'], CIC: ['Giải trí CIC', 'Infotainment CIC'], CICM: ['Giải trí CICM', 'Infotainment CICM'], NBT: ['Giải trí NBT', 'Infotainment NBT'], NBTEVO: ['Giải trí NBT EVO', 'Infotainment NBT EVO'],
     DCS: ['Camera tài xế', 'Driver camera'], DME: ['Động cơ DME', 'Engine DME'], MEVD: ['Động cơ MEVD', 'Engine MEVD'], DKG: ['Hộp số DKG', 'Gearbox DKG'], DSC: ['Phanh DSC', 'Brakes DSC'], DWA: ['Chống trộm DWA', 'Alarm DWA'],
-    EHC: ['Treo EHC', 'Suspension EHC'], EKP: ['Bơm xăng EKP', 'Fuel pump EKP'], ELV: ['Khóa lái ELV', 'Steering lock ELV'], EME: ['Mô-tơ EME', 'E-motor EME'], EMF: ['Phanh đỗ EMF', 'Parking brake EMF'], EPS: ['Trợ lực lái EPS', 'Steering EPS'],
-    FAS: ['Hỗ trợ lái FAS', 'Driver assist FAS'], FLA: ['Đèn pha FLA', 'High beam FLA'], FLE: ['Đèn trước', 'Headlight'], FLM: ['Đèn trước', 'Headlight'], FRM: ['Đèn và thân xe FRM', 'Footwell FRM'], FRR: ['Radar trước FRR', 'Front radar FRR'],
-    FZD: ['Trần xe FZD', 'Roof FZD'], GS: ['Hộp số GS', 'Gearbox GS'], GWS: ['Chọn số GWS', 'Gear selector GWS'], HKFM: ['Cửa hậu HKFM', 'Tailgate HKFM'], HU: ['Màn hình HU', 'Head unit HU'], HUD: ['Kính lái HUD', 'Head-up display'],
+    EHC: ['Treo EHC', 'Suspension EHC'], EGS: ['Hộp số EGS', 'EGS gearbox'], EKP: ['Bơm xăng EKP', 'Fuel pump EKP'], ELV: ['Khóa lái ELV', 'Steering lock ELV'], EME: ['Mô-tơ EME', 'E-motor EME'], EMF: ['Phanh đỗ EMF', 'Parking brake EMF'], EPS: ['Trợ lực lái EPS', 'Steering EPS'],
+    FAS: ['Hỗ trợ lái FAS', 'Driver assistance FAS'], FLA: ['Đèn pha FLA', 'High beam FLA'], FLE: ['Đèn trước', 'Headlight'], FLM: ['Đèn trước', 'Headlight'], FRM: ['Đèn và thân xe FRM', 'Footwell FRM'], FRR: ['Radar trước FRR', 'Front radar FRR'],
+    FZD: ['Trần xe FZD', 'Roof FZD'], GS: ['Hộp số EGS', 'EGS gearbox'], GWS: ['Cần số GWS', 'Gear selector GWS'], HKFM: ['Cửa hậu HKFM', 'Tailgate HKFM'], HU: ['Màn hình HU', 'Head unit HU'], HUD: ['Kính lái HUD', 'Head-up display'],
     HVS: ['Pin cao áp HVS', 'High-voltage battery'], ICM: ['Khung gầm ICM', 'Chassis ICM'], IHKA: ['Điều hòa IHKA', 'Climate IHKA'], KAFAS: ['Camera KAFAS', 'KAFAS camera'], KLE: ['Sạc KLE', 'Charger KLE'], KOMB: ['Đồng hồ KOMBI', 'Cluster KOMBI'], KOMBI: ['Đồng hồ KOMBI', 'Cluster KOMBI'],
     MGU: ['Màn hình MGU', 'Head unit MGU'], MRR: ['Radar MRR', 'Radar MRR'], MSD: ['Động cơ MSD', 'Engine MSD'], MSV: ['Động cơ MSV', 'Engine MSV'], NIVI: ['Camera đêm NIVI', 'Night vision NIVI'], OBC: ['Sạc OBC', 'Charger OBC'],
     PDC: ['Cảm biến đỗ PDC', 'Parking sensors PDC'], PMA: ['Hỗ trợ đỗ PMA', 'Parking assist PMA'], RAD: ['Radio RAD', 'Radio RAD'], RAM: ['Âm thanh RAM', 'Audio RAM'], RDC: ['Áp suất lốp RDC', 'Tyre pressure RDC'], RSE: ['Giải trí sau RSE', 'Rear entertainment RSE'],
@@ -183,7 +184,7 @@ const ECU_ADDR_SHORT = {
     0x38: ['xDrive VTG', 'xDrive VTG'], 0x39: ['Trợ lực phanh DSC', 'Brake booster DSC'], 0x3A: ['Mô-tơ EME', 'E-motor EME'],
     0x40: ['Thân xe BDC', 'Body BDC'], 0x43: ['Đèn trước FLM', 'Headlight FLM'], 0x44: ['Đèn trước FLM', 'Headlight FLM'],
     0x45: ['Camera tài xế', 'Driver camera'], 0x56: ['Trần xe FZD', 'Roof FZD'], 0x5D: ['Camera KAFAS', 'KAFAS camera'],
-    0x5E: ['Chọn số GWS', 'Gear selector GWS'], 0x60: ['Đồng hồ KOMBI', 'Cluster KOMBI'], 0x61: ['Viễn thông ATM', 'Telematics ATM'],
+    0x5E: ['Cần số GWS', 'Gear selector GWS'], 0x60: ['Đồng hồ KOMBI', 'Cluster KOMBI'], 0x61: ['Viễn thông ATM', 'Telematics ATM'],
     0x63: ['Màn hình HU', 'Head unit HU'], 0x64: ['Cảm biến đỗ PDC', 'Parking sensors PDC'], 0x67: ['Giao diện ZBE', 'Interface ZBE'],
     0x6D: ['Ghế SM', 'Seat module SM'], 0x76: ['Giảm chấn VDP', 'Dampers VDP'], 0x78: ['Điều hòa IHKA', 'Climate IHKA'],
 };
@@ -436,7 +437,7 @@ mgu.run({
             const stamp = new Date().toISOString().replace(/[:.]/g, '-');
             const file = path.join(dir, 'mgu-diagnostics-' + stamp + '.json');
             const report = {
-                app: 'MGU Diagnostics', version: '0.1.1', createdAt: new Date().toISOString(), reason: tag || 'Người dùng lưu báo cáo',
+                app: 'MGU Diagnostics', version: ctx.spec.version, createdAt: new Date().toISOString(), reason: tag || 'Người dùng lưu báo cáo',
                 source: scan.demo ? 'demo' : 'vehicle', scanAt: new Date(scan.at).toISOString(),
                 controlUnits: scan.ecus.map((e) => ({ address: '0x' + hex(e.addr), name: ecuName(e.addr),
                     faults: e.dtcs.map((d) => ({ code: d.code, status: d.status, memory: d.mem, description: describe(e.addr, d.code) ? diagnosticText(describe(e.addr, d.code)) : null })) })),
@@ -601,12 +602,15 @@ mgu.run({
         }
 
         function drawSystem(cv, t) {
-            const p = G.panel(cv, t, 24, 44, 1552, 468, 'Tình trạng MGU');
+            G.panel(cv, t, 24, 44, 1552, 468, 'MGU status');
             const safeOs = (fn, fallback) => { try { return fn ? fn() : fallback; } catch (e) { return fallback; } };
             const total = safeOs(os.totalmem, 0), free = safeOs(os.freemem, 0);
             const up = Math.floor(safeOs(os.uptime, 0));
             const interfaces = safeOs(os.networkInterfaces, {}) || {};
-            const activeIf = Object.keys(interfaces).filter((n) => (interfaces[n] || []).some((x) => !x.internal));
+            const activeIf = Object.keys(interfaces).map((name) => ({
+                name,
+                addresses: (interfaces[name] || []).filter((x) => !x.internal && x.family === 'IPv4').map((x) => x.address)
+            })).filter((x) => x.addresses.length);
             let reports = 0, reportBytes = 0;
             try {
                 const dir = path.join(ctx.dataDir, 'reports');
@@ -614,22 +618,73 @@ mgu.run({
                     try { const st = fs.statSync(path.join(dir, f)); if (st.isFile()) { reports++; reportBytes += st.size; } } catch (e) {}
                 });
             } catch (e) { log.warn('report inventory: ' + e); }
-            const data = [
-                ['Kết nối chẩn đoán', diag.available ? 'Sẵn sàng' : 'Chưa kết nối'],
-                ['RAM đang dùng', total ? Math.round((total - free) / 1048576) + ' / ' + Math.round(total / 1048576) + ' MB' : 'Không có dữ liệu'],
-                ['Thời gian MGU hoạt động', Math.floor(up / 86400) + ' ngày ' + Math.floor(up % 86400 / 3600) + ' giờ'],
-                ['Giao diện mạng đang có', activeIf.length ? activeIf.length + ' đang hoạt động' : 'Không phát hiện'],
-                ['Báo cáo đã lưu', reports + ' tệp · ' + Math.round(reportBytes / 1024) + ' KB'],
-                ['Dữ liệu quét gần nhất', scan ? scan.ecus.length + ' hộp · ' + faults().length + ' mã lỗi' : 'Chưa quét']
+            const now = new Date(), time = [now.getHours(), now.getMinutes(), now.getSeconds()].map((x) => String(x).padStart(2, '0')).join(':');
+            const f = faults(), activeFaults = f.filter((d) => d.status & 1).length;
+            const used = total ? Math.max(0, total - free) : 0, ramPct = total ? Math.round(used * 100 / total) : 0;
+            const days = Math.floor(up / 86400), hours = Math.floor(up % 86400 / 3600), minutes = Math.floor(up % 3600 / 60);
+            const uptime = uiPair(days + 'd ' + hours + 'h ' + minutes + 'm', days + ' ngày ' + hours + ' giờ ' + minutes + ' phút');
+            const colW = 367, gap = 12, cardY = 88, cardH = 104;
+            const cards = [
+                { label: uiPair('Diagnostic connection', 'Kết nối chẩn đoán'), value: uiPair(diag.available ? 'Ready' : 'Unavailable', diag.available ? 'Sẵn sàng' : 'Chưa kết nối'), color: diag.available ? GO : t.warn, sub: uiPair('Vehicle diagnostic link', 'Đường truyền chẩn đoán xe') },
+                { label: uiPair('Memory in use', 'RAM đang dùng'), value: total ? Math.round(used / 1048576) + ' / ' + Math.round(total / 1048576) + ' MB' : uiPair('Unavailable', 'Không có dữ liệu'), color: ramPct >= 85 ? t.warn : t.accent, sub: total ? ramPct + '% ' + uiPair('used', 'đang dùng') : '' },
+                { label: uiPair('MGU uptime', 'Thời gian MGU hoạt động'), value: uptime, color: t.text, sub: uiPair('Since last restart', 'Từ lần khởi động gần nhất') },
+                { label: uiPair('Current MGU time', 'Giờ hiện tại trên MGU'), value: time, color: t.text, sub: uiPair('System clock', 'Đồng hồ hệ thống') }
             ];
-            const colW = 746, rowH = 66;
-            data.forEach((it, i) => {
-                const x = 48 + (i % 2) * 760, y = 98 + Math.floor(i / 2) * rowH;
-                cv.roundRect(x, y, colW, 54, 8, t.panel);
-                cv.text(it[0], x + 18, y + 23, 20, t.dim);
-                cv.text(fit(cv, it[1], 26, colW - 36, { font: 'bold' }), x + 18, y + 47, 26, t.text, { font: 'bold' });
+            cards.forEach((c, i) => {
+                const x = 48 + i * (colW + gap);
+                cv.roundRect(x, cardY, colW, cardH, 9, t.panel);
+                cv.fillRect(x, cardY, 4, cardH, c.color);
+                cv.text(c.label, x + 16, cardY + 23, 18, t.dim);
+                cv.text(fit(cv, c.value, 30, colW - 32, { font: 'bold' }), x + 16, cardY + 60, 30, c.color, { font: 'bold' });
+                cv.text(c.sub, x + 16, cardY + 85, 17, t.dim);
+                if (i === 1 && total) {
+                    cv.roundRect(x + 16, cardY + 91, colW - 32, 5, 2, t.track);
+                    cv.roundRect(x + 16, cardY + 91, Math.max(3, (colW - 32) * ramPct / 100), 5, 2, c.color);
+                }
             });
-            cv.text('Chỉ đọc trạng thái hệ thống; không gửi thay đổi tới các hộp điều khiển.', 48, p.y + p.h - 20, 20, t.dim);
+
+            const detailY = 204, detailH = 218, leftX = 48, leftW = 740, rightX = 800, rightW = 752;
+            cv.roundRect(leftX, detailY, leftW, detailH, 9, t.panel);
+            cv.text(uiPair('Last diagnostic scan', 'Lần quét chẩn đoán gần nhất'), leftX + 18, detailY + 31, 22, t.text, { font: 'bold' });
+            if (!scan) {
+                cv.text(uiPair('No scan has been run yet', 'Chưa thực hiện quét'), leftX + 18, detailY + 75, 22, t.dim);
+            } else {
+                cv.text(when(scan.at), leftX + 18, detailY + 63, 20, t.dim);
+                const rows = [
+                    [uiPair('Control units answered', 'Hộp điều khiển phản hồi'), String(scan.ecus.length)],
+                    [uiPair('Faults in memory', 'Mã lỗi trong bộ nhớ'), String(f.length)],
+                    [uiPair('Active faults', 'Mã lỗi đang hoạt động'), String(activeFaults)],
+                    [uiPair('Check Control messages', 'Thông báo xe'), String(ccList().length)]
+                ];
+                rows.forEach((r, i) => {
+                    const y = detailY + 100 + i * 27;
+                    cv.text(r[0], leftX + 18, y, 18, t.dim);
+                    cv.text(r[1], leftX + leftW - 20, y, 20, i === 2 && activeFaults ? t.crit : t.text, { align: 'right', font: 'bold' });
+                });
+                const source = scan.demo ? uiPair('Demo data', 'Dữ liệu mô phỏng') : uiPair('Live vehicle data', 'Dữ liệu xe thực');
+                cv.text(source, leftX + 18, detailY + detailH - 15, 17, scan.demo ? t.warn : GO);
+            }
+
+            cv.roundRect(rightX, detailY, rightW, detailH, 9, t.panel);
+            cv.text(uiPair('Network interfaces', 'Giao diện mạng'), rightX + 18, detailY + 31, 22, t.text, { font: 'bold' });
+            if (!activeIf.length) {
+                cv.text(uiPair('No active network address found', 'Không phát hiện địa chỉ mạng đang hoạt động'), rightX + 18, detailY + 75, 20, t.dim);
+            } else {
+                activeIf.slice(0, 4).forEach((n, i) => {
+                    const y = detailY + 70 + i * 34;
+                    cv.circle(rightX + 25, y - 5, 5, GO);
+                    cv.text(fit(cv, n.name, 18, 210), rightX + 40, y, 18, t.text, { font: 'bold' });
+                    cv.text(fit(cv, n.addresses.join(', '), 18, rightW - 280), rightX + 250, y, 18, t.dim, { align: 'right' });
+                });
+                if (activeIf.length > 4) cv.text('+' + (activeIf.length - 4), rightX + rightW - 18, detailY + detailH - 14, 16, t.dim, { align: 'right' });
+            }
+
+            const summaryY = 436;
+            const osVersion = [safeOs(os.platform, ''), safeOs(os.release, '')].filter(Boolean).join(' ');
+            const cpuCount = safeOs(() => os.cpus().length, 0);
+            cv.text(uiPair('Saved reports', 'Báo cáo đã lưu') + ': ' + reports + ' · ' + Math.round(reportBytes / 1024) + ' KB', 48, summaryY + 22, 18, t.dim);
+            cv.text((osVersion || uiPair('System details unavailable', 'Không có thông tin hệ thống')) + (cpuCount ? ' · ' + cpuCount + ' ' + uiPair('CPU cores', 'lõi CPU') : ''), 48, summaryY + 48, 18, t.dim);
+            cv.text(uiPair('Read-only system status. No vehicle settings are changed from this page.', 'Trang này chỉ đọc trạng thái; không thay đổi cài đặt xe.'), 48, summaryY + 74, 17, t.dim);
         }
 
         let drawn = -1;

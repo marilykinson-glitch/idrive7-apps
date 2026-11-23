@@ -48,6 +48,8 @@ Renderer	Bộ vẽ
 GPU 60 fps (default)	GPU 60 fps (mặc định)
 Software	Phần mềm (CPU)
 Demo data	Dữ liệu mô phỏng
+Automatic	Tự động
+Always on	Luôn bật
 Auto	Tự động
 Always	Luôn luôn
 Never	Không bao giờ
@@ -351,3 +353,8 @@ BMW map	Bản đồ BMW
 BMW map's sign	Biển bản đồ BMW
 code	mã
 No sign on this road now	Đoạn đường này đang không có biển
+Scan BMW control units, review vehicle messages, and save a report before clearing faults	Quét hộp điều khiển BMW, xem thông báo xe và lưu báo cáo trước khi xóa lỗi
+Next page	Trang tiếp
+Save report	Lưu báo cáo
+Asking every control unit...	Đang hỏi từng hộp điều khiển...
+WARNING LAMP	ĐÈN BÁO LỖI
