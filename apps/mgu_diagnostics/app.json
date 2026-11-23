@@ -2,7 +2,7 @@
   "id": "mgu_diagnostics",
   "title": "MGU Diagnostics",
   "description": "Scan BMW control units, review vehicle messages, and save a report before clearing faults",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "vendor": "custom",
   "loggingId": "OA95",
   "iconGlyph": "engine",
@@ -22,6 +22,18 @@
     "de.bmw.infotainment.KombiInterface_2": {
       "ccList": "rs",
       "newCCMessage": "rs"
+    },
+    "de.bmw.infotainment.KombiIF": {
+      "statusShowTimeDate": "rs",
+      "statusTimeDate": "rs",
+      "statusRangeTankStatus": "rs"
+    },
+    "de.bmw.infotainment.vehicle.CDS": {
+      "statusBattery2": "rs",
+      "statusEngineTemperature": "rs"
+    },
+    "de.bmw.infrastructure.VehicleCondition": {
+      "VehicleCondition": "s"
     }
   },
   "screens": [

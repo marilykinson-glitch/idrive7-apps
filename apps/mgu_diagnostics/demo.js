@@ -22,7 +22,7 @@ module.exports = {
         { addr: 0x01, dtcs: [] }, { addr: 0x06, dtcs: [] }, { addr: 0x08, dtcs: [] }, { addr: 0x0D, dtcs: [] },
         { addr: 0x10, dtcs: [] }, { addr: 0x1D, dtcs: [] }, { addr: 0x20, dtcs: [] }, { addr: 0x21, dtcs: [] },
         { addr: 0x23, dtcs: [] }, { addr: 0x28, dtcs: [] }, { addr: 0x2A, dtcs: [] }, { addr: 0x2C, dtcs: [] },
-        { addr: 0x37, dtcs: [] }, { addr: 0x39, dtcs: [] }, { addr: 0x43, dtcs: [] }, { addr: 0x44, dtcs: [] },
+        { addr: 0x39, dtcs: [] }, { addr: 0x43, dtcs: [] }, { addr: 0x44, dtcs: [] },
         { addr: 0x56, dtcs: [] }, { addr: 0x5E, dtcs: [] }, { addr: 0x60, dtcs: [] }, { addr: 0x61, dtcs: [] },
         { addr: 0x64, dtcs: [] }, { addr: 0x67, dtcs: [] }, { addr: 0x6D, dtcs: [] }, { addr: 0x76, dtcs: [] },
     ],

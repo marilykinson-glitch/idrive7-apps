@@ -1,10 +1,11 @@
 'use strict';
 // Never apply the instrument/UI word-replacement dictionary to diagnostic prose.
 const path = require('path');
-const { getLanguage, dict, plural } = require('./kit/i18n');
+const i18n = require('./kit/i18n');
+const { getLanguage, plural } = i18n;
 let db = null;
 let reverseVi = null;
-// A few live vehicle strings from MGU7 are not present in the bundled BMW text catalog.
+// A few live vehicle strings from MGU7 and curated overrides are handled directly here.
 // Keep these exact-match translations here; unknown diagnostic prose still falls back verbatim.
 const KNOWN_VI = {
     'garage door opener: lin-slave unexpected': 'Bộ mở cửa gara: thiết bị phụ LIN phản hồi ngoài dự kiến.',
@@ -23,7 +24,15 @@ const KNOWN_VI = {
     'front right speaker output lines: disconnected line': 'Loa trước bên phải: dây tín hiệu đầu ra bị đứt.',
     'tweeter, rear left 2, speaker output lines: cable interruption': 'Tweeter sau bên trái số 2: dây tín hiệu đầu ra bị đứt.',
     'tweeter, rear right 2, speaker output lines: cable interruption': 'Tweeter sau bên phải số 2: dây tín hiệu đầu ra bị đứt.',
-    'tweeter, rear left, speaker output lines: cable interruption': 'Tweeter sau bên trái: dây tín hiệu đầu ra bị đứt.'
+    'tweeter, rear left, speaker output lines: cable interruption': 'Tweeter sau bên trái: dây tín hiệu đầu ra bị đứt.',
+    'bdc: led gen2: headlight temperature too high': 'BDC: LED GEN2: nhiệt độ đèn pha quá cao.',
+    'head unit: bluetooth/wi-fi aerial 1: disconnected line': 'Màn hình trung tâm (HU): ăng-ten Bluetooth/Wi-Fi số 1 bị đứt dây hoặc mất kết nối.',
+    'eme, dc/dc converter, temperature sensor, signal: implausible value': 'EME, bộ chuyển đổi DC/DC, cảm biến nhiệt độ: giá trị tín hiệu không hợp lý.',
+    'eps control unit: internal fault (standby current too high)': 'Hộp điều khiển trợ lực lái EPS: lỗi nội bộ (dòng điện chờ quá cao).',
+    'fa-can message missing: fuel tank level / range (0x373)': 'Thiếu bản tin FA-CAN: mức nhiên liệu / quãng đường dự kiến (0x373).',
+    'message (driver assistance, comfort, safety) missing, receiver acc/frsf, transmitter dsc/sas': 'Thiếu bản tin hỗ trợ lái, tiện nghi, an toàn; hộp nhận ACC/FRSF, bên gửi DSC/SAS.',
+    'message (chassis, acceleration data) missing, receiver acc/frsf, transmitter dsc/vip': 'Thiếu bản tin dữ liệu gia tốc khung gầm; hộp nhận ACC/FRSF, bên gửi DSC/VIP.',
+    'telematics: mobile network connection limited': 'Viễn thông: kết nối mạng di động bị giới hạn.'
 };
 // A few vehicle services return the already-localized Vietnamese text instead of the
 // English diagnostic catalog key. Build a conservative exact reverse index so English
@@ -71,7 +80,9 @@ function diagnosticText(value) {
     }
     if ((language === 'zh-CN' || language === 'ru' || language === 'vi') && !db) db = require('./kit/pack').open(path.join(__dirname, 'diagnostic_i18n'));
     const lookup = english || source;
-    if (language === 'vi') return db.get('vi.json', lookup) || dict[lookup] || (english ? source : 'Mô tả gốc: ' + source);
-    return !db ? lookup : db.get(language + '.json', lookup) || dict[lookup] || lookup;
+    const activeDict = i18n.dict || {};
+    if (language === 'vi') return db.get('vi.json', lookup) || activeDict[lookup] || (english ? source : 'Mô tả gốc: ' + source);
+    if (language === 'en') return lookup;
+    return !db ? lookup : db.get(language + '.json', lookup) || activeDict[lookup] || lookup;
 }
 module.exports = { diagnosticText };
