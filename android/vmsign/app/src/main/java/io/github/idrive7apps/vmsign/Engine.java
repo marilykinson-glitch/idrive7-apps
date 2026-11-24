@@ -23,7 +23,7 @@ import java.util.regex.Pattern;
  * number in VietMap's windows.
  */
 final class Engine {
-    static final String VERSION = "0.4.4";
+    static final String VERSION = "0.4.5";
     /** The biggest red-ringed number in VietMap's windows (SignOcr): the sign, when no line is picked. */
     static final String OCR_SIGN = "ocr:sign";
     static final String PREFS = "vmsign";
@@ -57,6 +57,8 @@ final class Engine {
     static volatile long scanAt = 0;
 
     static volatile int limit = 0;            // VietMap's sign now, 0: none
+    static volatile int nextLimit = 0;        // upcoming speed limit in VietMap, 0: none
+    static volatile String alertHint = "";    // short traffic alert from VietMap (urban area, speed camera...)
     static volatile String source = "";       // where it came from
     static volatile boolean picked = false;   // from the user's pick (else guessed)
     static volatile boolean fromWindows = false;   // read in VietMap's windows (they are read once a second)
@@ -97,8 +99,10 @@ final class Engine {
     private static final Pattern NUMBER = Pattern.compile("(?<![0-9])([0-9]{1,3})(?![0-9])");
     private static final Pattern HINT = Pattern.compile("limit|max|sign|bien|bienbao|gioihan|gioi_han|maxspeed|speedlimit|speed_limit|toc_?do_?toi_?da", Pattern.CASE_INSENSITIVE);
     private static final Pattern NOT_LIMIT = Pattern.compile("current|cur_|curspeed|my_?speed|real|gps|distance|km_left|time|clock", Pattern.CASE_INSENSITIVE);
+    private static final Pattern NEXT_HINT = Pattern.compile("next|ahead|upcoming|sap_?toi|tiep_?theo|biển tiếp|sắp tới|tốc độ tiếp", Pattern.CASE_INSENSITIVE);
+    private static final Pattern ALERT_TEXT = Pattern.compile("(vào khu dân cư|ra khỏi khu dân cư|hết khu dân cư|camera phạt nguội|camera tốc độ|camera giao thông|cấm vượt|hết cấm vượt)", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
 
-    /** A speed-limit number in the text: 5 to 150 km/h in steps of 5, the only number there. */
+    /** A road speed-limit number in the text: 10 to 150 km/h in steps of 5, the only number there. */
     static int numberIn(String text) {
         if (text == null) return 0;
         Matcher m = NUMBER.matcher(text);
@@ -108,7 +112,7 @@ final class Engine {
             if (count > 1) return 0;
             found = Integer.parseInt(m.group(1));
         }
-        return found >= 5 && found <= 150 && found % 5 == 0 ? found : 0;
+        return found >= 10 && found <= 150 && found % 5 == 0 ? found : 0;
     }
 
     static boolean isVietMap(CharSequence pkg) {
@@ -173,8 +177,22 @@ final class Engine {
         if (n > 0) {
             synchronized (LOCK) { for (Item it : windowItems) { if (it.number == n && src.equals(it.shortId())) { win = true; break; } } }
         }
+        int next = 0;
+        String hintText = "";
+        for (Item it : all) {
+            if (!isVietMap(it.pkg)) continue;
+            if (next == 0 && it.number > 0 && it.number != n && NEXT_HINT.matcher(it.id + " " + it.text).find()) {
+                next = it.number;
+            }
+            if (hintText.length() == 0 && it.text.length() > 0) {
+                Matcher am = ALERT_TEXT.matcher(it.text);
+                if (am.find()) hintText = am.group(1);
+            }
+        }
         fromWindows = win;
         limit = n;
+        nextLimit = next;
+        alertHint = hintText;
         source = src;
         picked = byPick;
         CarLink.get(c).wake();
@@ -188,6 +206,12 @@ final class Engine {
         // never an old one sent as if new
         if (fromWindows && now - scanAt > 5000) return 0;
         return limit;
+    }
+    static int outgoingNext() {
+        return testing() || (fromWindows && System.currentTimeMillis() - scanAt > 5000) ? 0 : nextLimit;
+    }
+    static String outgoingHint() {
+        return testing() || (fromWindows && System.currentTimeMillis() - scanAt > 5000) ? "" : alertHint;
     }
     static boolean testing() { return testLimit > 0 && System.currentTimeMillis() < testUntil; }
 

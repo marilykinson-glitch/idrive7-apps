@@ -53,7 +53,7 @@ const cp = require('child_process');
 const dgram = require('dgram');
 const zlib = require('zlib');
 
-const VERSION = '0.7.1';
+const VERSION = '0.8.0';
 const env = (k, d) => (process.env[k] !== undefined && process.env[k] !== '' ? process.env[k] : d);
 const CFG = {
     oap: env('VMS_OAP', '/var/opt/public/oap'),
@@ -66,11 +66,13 @@ const CFG = {
     ifaces: env('VMS_IFACES', 'wlan_bridge,wlan0').split(',').map((s) => s.trim()).filter(Boolean),
     nft: env('VMS_NFT', 'nft'),
     wocRun: env('VMS_WOC_RUN', '/run/waze-on-cluster'),
+    xcRun: env('VMS_XC_RUN', '/run/xinhan-cam'),
     crClient: env('VMS_CR_CLIENT', '/var/opt/cluster-render/current/cluster_render_client.js'),
     crSocket: env('VMS_CR_SOCKET', ''),
     pollMs: Number(env('VMS_POLL_MS', 500)),
     phoneStaleMs: Number(env('VMS_PHONE_STALE_MS', 5000)),
     wocStaleMs: Number(env('VMS_WOC_STALE_MS', 30000)),
+    xcStaleMs: Number(env('VMS_XC_STALE_MS', 4000)),
     ruleMs: Number(env('VMS_RULE_MS', 30000)),
     loopback: env('VMS_LOOPBACK', '') === '1',     // tests: senders on 127.0.0.1 too
     // the centre screen's pictures (CarPlay: VietMap Live's widget with the sign)
@@ -90,8 +92,8 @@ const APP = /^vietmap_signs\d*$/;          // the app's id (the Store may instal
 const NFT_COMMENT = 'vietmap-signs';
 const STATUS_FILE = () => path.join(CFG.run, 'status.json');
 
-// cluster-render's targets on iDrive 7 (its PROTOCOL.md hello): the map area and the HUD
-const MAP_W = 1088, MAP_H = 480, HUD_W = 800, HUD_H = 480;
+// cluster-render's targets on iDrive 7 (its PROTOCOL.md hello): the map area, the full cluster panel, and the HUD
+const MAP_W = 1088, MAP_H = 480, PANEL_W = 1920, PANEL_H = 720, PANEL_MAP_X = 416, PANEL_MAP_Y = 120, HUD_W = 800, HUD_H = 480;
 const SIZES = { small: { map: 96, hud: 64 }, medium: { map: 128, hud: 80 }, large: { map: 160, hud: 100 } };
 // what the HUD shows of its 800x480, with room to spare: Waze on cluster's widest map, 85 % (680x300),
 // centred, is said to be the most not cut off at its edges, and a sign reaching x 740 was cut on the car
@@ -182,6 +184,30 @@ function drawSign(limit, S, warn) {
             for (let i = 0; i < 3; i++) px[o + i] = Math.round(WHITE[i] * (1 - red) + RED[i] * red);
             px[o + 3] = Math.round(a * 255);
         }
+    }
+    if (!limit || limit === '---' || limit === 'none') {
+        // OEM BMW SLI "no limit" look: 3 crisp horizontal dashes across the white disc
+        const spanW = 2 * (rRed - ring) * 0.72;
+        const dashW = spanW / 3.9, gapW = dashW * 0.45;
+        const dashH = Math.max(2.4, S * 0.062), rad = dashH * 0.25;
+        const hw = Math.max(0, dashW / 2 - rad), hh = Math.max(0, dashH / 2 - rad);
+        const y0 = Math.max(0, Math.floor(c - dashH / 2 - 1)), y1 = Math.min(S, Math.ceil(c + dashH / 2 + 1));
+        for (let k = -1; k <= 1; k++) {
+            const dcx = c + k * (dashW + gapW);
+            const x0 = Math.max(0, Math.floor(dcx - dashW / 2 - 1)), x1 = Math.min(S, Math.ceil(dcx + dashW / 2 + 1));
+            for (let y = y0; y < y1; y++) {
+                const qy = Math.max(0, Math.abs(y + 0.5 - c) - hh);
+                for (let x = x0; x < x1; x++) {
+                    const qx = Math.max(0, Math.abs(x + 0.5 - dcx) - hw);
+                    const dist = Math.sqrt(qx * qx + qy * qy) - rad;
+                    const t = clamp01(0.5 - dist);
+                    if (t <= 0) continue;
+                    const o = (y * S + x) * 4;
+                    for (let i = 0; i < 3; i++) px[o + i] = Math.round(px[o + i] * (1 - t) + INK[i] * t);
+                }
+            }
+        }
+        return px;
     }
     const text = String(limit);
     const D = digits();
@@ -279,7 +305,7 @@ function findApp(now) {
     return null;
 }
 
-const DEFAULTS = { mode: 'on', show: 'both', side: 'right', hudSide: 'left', size: 'medium', screen: 'on', warn: '5', camera: 'on', probe: 'off', bmwmap: 'on' };
+const DEFAULTS = { mode: 'on', show: 'both', side: 'right', hudSide: 'left', size: 'medium', screen: 'off', warn: '5', camera: 'on', probe: 'off', bmwmap: 'on', empty: 'dashes', frontcam: 'on', minLimit: '10' };
 const WARN = { off: null, '0': 0, '5': 5, '10': 10 };
 const POS_KEYS = ['mapX', 'mapY', 'hudX', 'hudY'];
 const PREVIEW_LIMIT = 60;
@@ -303,12 +329,18 @@ function desired(now) {
         side: values.side === 'left' ? 'left' : 'right',
         hudSide: values.hudSide === 'right' ? 'right' : 'left',
         size: SIZES[values.size] ? values.size : 'medium',
-        screen: values.screen !== 'off',
+        screen: values.screen === 'on',
         camera: values.camera !== 'off',
         // look for BMW's map speed limit in the unit's interfaces and log what comes (probe.js)
         probe: values.probe === 'on',
         // BMW's map limit (camera.js mapCurrent), after the camera's and the phone's
         bmwMap: values.bmwmap !== 'off',
+        // what to show when no source has a limit: 'dashes' (BMW's "---") or 'hide'
+        empty: values.empty === 'hide' ? 'hide' : 'dashes',
+        // also draw the sign over Camera xi nhan's front camera on the cluster
+        frontcam: values.frontcam !== 'off',
+        // ignore garage / inner-courtyard 5 km/h limits by default (10 km/h minimum)
+        minLimit: Number(values.minLimit) === 5 ? 5 : 10,
         // warn above the sign by this much (km/h), or null: no warning
         warn: Object.prototype.hasOwnProperty.call(WARN, String(values.warn)) ? WARN[String(values.warn)] : 5,
         mapPos: pos('mapX', 'mapY'),
@@ -325,7 +357,8 @@ const appRun = { dir: null, uid: null, gid: null, by: null, error: null, checked
  * and the app could not read the folder made for it). null when the app is not running.
  */
 function appProcess(app, now) {
-    if (appRun.proc && now - appRun.procAt < 30000 && now >= appRun.procAt) return appRun.proc;
+    if (appRun.proc && now - appRun.procAt < 30000 && now >= appRun.procAt
+        && fs.existsSync(path.join(CFG.proc, String(appRun.proc.pid)))) return appRun.proc;
     appRun.procAt = now;
     let found = null;
     let pids = [];
@@ -545,6 +578,21 @@ function wocStatus(now) {
     };
 }
 
+/** Camera xi nhan (xinhan-cam): is its front camera shown on the cluster now, and on which target? */
+function xcStatus(now) {
+    const f = path.join(CFG.xcRun, 'status.json');
+    const s = readJson(f);
+    if (!s || typeof s !== 'object') return { known: false, fresh: false, front: false, target: null, box: null };
+    const at = Date.parse(s.at) || mtime(f);
+    const fresh = now - at < CFG.xcStaleMs && now >= at - 5000;
+    const n = s.native && typeof s.native === 'object' ? s.native : null;
+    const front = !!(fresh && n && Number(n.shown) === 1 && (n.view === 'front' || s.view === 'front'));
+    const target = front ? (n.target === 'panel' ? 'panel' : 'map') : null;
+    const box = front && Number(n.layer_w) > 0 && Number(n.layer_h) > 0
+        ? { x: Number(n.layer_x) || 0, y: Number(n.layer_y) || 0, w: Number(n.layer_w), h: Number(n.layer_h) } : null;
+    return { known: true, fresh, front, target, box };
+}
+
 /** Where the sign goes on each target. */
 function geometry(d, woc) {
     const s = SIZES[d.size];
@@ -613,7 +661,7 @@ function ensureRules(now) {
 
 /* ---------------- the phone ---------------- */
 
-const phone = { from: null, at: 0, seq: null, limit: null, test: false, ver: null, packets: 0, ignored: 0, bad: 0 };
+const phone = { from: null, at: 0, seq: null, limit: null, next: null, hint: null, test: false, ver: null, packets: 0, ignored: 0, bad: 0 };
 
 function ipv4ToInt(a) { return a.split('.').reduce((n, x) => ((n << 8) >>> 0) + (Number(x) & 255), 0) >>> 0; }
 /** Is the sender on one of our interfaces' own subnets? */
@@ -637,8 +685,12 @@ function parsePacket(buf) {
     if (!m || m.t !== 'vms') return null;
     const limit = Number(m.limit);
     if (!(Number.isInteger(limit) && limit >= 0 && limit <= 199)) return null;
-    return { seq: Number.isFinite(Number(m.seq)) ? Number(m.seq) : null, limit: limit || null, test: !!m.test, ver: typeof m.app === 'string' ? m.app.slice(0, 40) : null,
+    const out = { seq: Number.isFinite(Number(m.seq)) ? Number(m.seq) : null, limit: limit || null, test: !!m.test, ver: typeof m.app === 'string' ? m.app.slice(0, 40) : null,
         code: typeof m.code === 'string' ? m.code.slice(0, 16) : typeof m.code === 'number' ? String(m.code) : null };
+    const next = Number(m.next);
+    if (Number.isInteger(next) && next >= 5 && next <= 199) out.next = next;
+    if (typeof m.hint === 'string' && m.hint.trim()) out.hint = m.hint.trim().slice(0, 40);
+    return out;
 }
 
 /* ---------------- drawing through cluster-render ---------------- */
@@ -666,30 +718,35 @@ function startRenderer() {
     return true;
 }
 
-/** want: { limit, map: { visible, x, y, size, guide }, hud: {...} } */
+/** want: { symbol, map: { visible, x, y, size, guide }, panel: {...}, hud: {...}, warn } */
 function applyLayers(want) {
     if (!cr) return;
-    ['map', 'hud'].forEach((t) => {
+    ['map', 'panel', 'hud'].forEach((t) => {
         const w = want[t];
+        if (!w) return;
         let L = layers[t];
-        if (!w.visible || !want.limit) {
+        if (!w.visible || !want.symbol) {
             if (L && L.visible) { cr.set(L.ref, { visible: false, opacity: 1 }); L.visible = false; }
             return;
         }
         if (!L || L.size !== w.size) {
             if (L) cr.drop(L.ref);
-            const ref = cr.image({ target: t, klass: 'overlay', z: 10, x: w.x, y: w.y, w: w.size, h: w.size, iw: w.size, ih: w.size,
-                visible: false, fps: 4, guide_hold: w.guide, contend: false });
+            // z 950 on map/panel: sits above mgu-sidecam's front camera (z 900, exclusive) and aux mirror camera (z 910)
+            const z = t === 'hud' ? 10 : 950;
+            const opts = { target: t, klass: 'overlay', z, x: w.x, y: w.y, w: w.size, h: w.size, iw: w.size, ih: w.size,
+                visible: false, fps: 4, contend: false };
+            if (t !== 'panel') opts.guide_hold = w.guide;
+            const ref = cr.image(opts);
             if (!ref) { renderer.error = 'cluster-render client refused the ' + t + ' layer'; return; }
             L = layers[t] = { ref, size: w.size, x: w.x, y: w.y, limit: null, look: null, anim: 0, visible: false, guide: w.guide };
             renderer.layers[t] = { state: 'made', reason: null };
         }
-        if (L.limit !== want.limit) { cr.pixels(L.ref, null, sign(want.limit, w.size)); L.limit = want.limit; }
+        if (L.limit !== want.symbol) { cr.pixels(L.ref, null, sign(want.symbol, w.size)); L.limit = want.symbol; }
         if (L.x !== w.x || L.y !== w.y) { cr.set(L.ref, { x: w.x, y: w.y }); L.x = w.x; L.y = w.y; }
-        if (L.guide !== w.guide) { cr.set(L.ref, { guide_hold: w.guide }); L.guide = w.guide; }
+        if (t !== 'panel' && L.guide !== w.guide) { cr.set(L.ref, { guide_hold: w.guide }); L.guide = w.guide; }
         if (!L.visible) { cr.set(L.ref, { visible: true, opacity: flash.opacity }); L.visible = true; }
     });
-    flashing(!!want.warn && (want.map.visible || want.hud.visible));
+    flashing(!!want.warn && (want.map.visible || (want.panel && want.panel.visible) || want.hud.visible));
 }
 
 /* ---------------- one look ---------------- */
@@ -787,42 +844,51 @@ function screenSign(now) {
 
 function decide(now) {
     const d = desired(now);
+    cam.minLimit = d.minLimit;
     const dr = previewDrag(now);
     if (dr) d[dr.t === 'map' ? 'mapPos' : 'hudPos'] = { x: dr.x, y: dr.y };
     const woc = wocStatus(now);
+    const xc = xcStatus(now);
+    const frontOn = d.on && d.frontcam && xc.front;
+    const clusterSurface = woc.map || frontOn;
     const fresh = phone.at && now - phone.at < CFG.phoneStaleMs;
     const placing = preview(now);
-    // BMW's front camera's sign first, then the phone's (VietMap), then the centre screen's
+    // BMW's front camera's sign first, then the phone's (VietMap), then the centre screen's, then BMW's map
     const camLimit = d.on && d.camera ? camera.current(cam, now, log) : 0;
     // the centre screen is read while neither the camera nor the phone has a sign and the sign could show
-    const reading = d.on && d.screen && !camLimit && !fresh && !placing && (woc.map || woc.hud) && renderer.installed !== false
+    const reading = d.on && d.screen && !camLimit && !fresh && !placing && (clusterSurface || woc.hud) && renderer.installed !== false
         && (fs.existsSync(CFG.grabber) || !path.isAbsolute(CFG.grabber));
     if (reading && !screen.running && now - screen.startedAt >= CFG.screenMs) shootScreen(now);
     const onScreen = reading ? screenSign(now) : 0;
-    const mapLimit = d.on && d.bmwMap ? camera.mapCurrent(cam, now) : 0;
+    const mapLimit = d.on && d.bmwMap ? camera.mapCurrent(cam, now, d.camera) : 0;
     // while it is being placed, 60 without any
     const source = camLimit ? 'camera' : fresh && phone.limit ? 'phone' : onScreen ? 'screen' : mapLimit ? 'bmwmap' : placing ? 'preview' : null;
     const limit = camLimit || (fresh && phone.limit) || onScreen || mapLimit || (placing ? PREVIEW_LIMIT : null);
+    const symbol = limit || (d.on && d.empty !== 'hide' && !placing ? '---' : null);
     const g = geometry(d, woc);
     const wantMap = d.on && d.show !== 'hud', wantHud = d.on && d.show !== 'cluster';
-    const showOk = renderer.installed !== false && !!limit;
+    const showOk = renderer.installed !== false && !!symbol;
     const speed = carSpeed(now);
     const over = !!limit && !placing && d.warn !== null && speed !== null && speed > limit + d.warn;
-    const map = Object.assign({ visible: showOk && wantMap && woc.map, guide: woc.guideHold === 0 ? 0 : 1 }, g.map);
+    const onPanel = frontOn && xc.target === 'panel';
+    const map = Object.assign({ visible: showOk && wantMap && clusterSurface && !onPanel, guide: woc.map && woc.guideHold === 0 ? 0 : 1 }, g.map);
+    const panel = { visible: showOk && wantMap && onPanel, guide: 1, size: g.map.size,
+        x: Math.max(0, Math.min(PANEL_W - g.map.size, PANEL_MAP_X + g.map.x)),
+        y: Math.max(0, Math.min(PANEL_H - g.map.size, PANEL_MAP_Y + g.map.y)) };
     const hud = Object.assign({ visible: showOk && wantHud && woc.hud, guide: woc.guideHold === 0 ? 0 : 1 }, g.hud);
     let why = '';
     if (!d.on) why = 'off in the app';
     else if (placing && !limit) why = '';
-    else if (placing) why = !renderer.installed ? 'cluster-render is not installed' : !woc.known ? 'Waze on cluster is not installed'
-        : !(wantMap && woc.map) && !(wantHud && woc.hud) ? 'Waze on cluster shows no map there' : '';
+    else if (placing) why = !renderer.installed ? 'cluster-render is not installed' : !woc.known && !xc.known ? 'Waze on cluster is not installed'
+        : !(wantMap && clusterSurface) && !(wantHud && woc.hud) ? 'Waze on cluster shows no map there' : '';
+    else if (!renderer.installed) why = 'cluster-render is not installed';
+    else if (limit && !woc.known && !xc.known) why = 'Waze on cluster is not installed';
+    else if (limit && !(wantMap && clusterSurface) && !(wantHud && woc.hud)) why = 'Waze on cluster shows no map there';
     else if (reading && !limit) why = screen.error ? 'the centre screen cannot be read' : 'no sign on the centre screen';
     else if (!limit && !phone.at) why = d.bmwMap && cam.map.ready ? 'no sign on this road' : 'no phone yet';
     else if (!limit && !fresh) why = d.bmwMap && cam.map.ready ? 'no sign on this road' : 'the phone stopped sending';
     else if (!limit) why = 'no sign in VietMap';
-    else if (!renderer.installed) why = 'cluster-render is not installed';
-    else if (!woc.known) why = 'Waze on cluster is not installed';
-    else if (!(wantMap && woc.map) && !(wantHud && woc.hud)) why = 'Waze on cluster shows no map there';
-    return { d, woc, placing, reading, speed, over, source, limit, map, hud, why };
+    return { d, woc, xc, placing, reading, speed, over, source, limit, symbol, map, panel, hud, why };
 }
 
 function tick() {
@@ -833,10 +899,13 @@ function tick() {
     pairToApp(now);
     const s = decide(now);
     if (CFG.camera) manageProbe(s.d.probe, now);
-    applyLayers({ limit: s.limit, map: s.map, hud: s.hud, warn: s.over });
-    last = { shown: ['map', 'hud'].filter((t) => s[t].visible), why: s.why, limit: s.limit };
-    const key = JSON.stringify([last, renderer, fw.error, s.d, s.placing, s.reading, s.over, s.woc.map, s.woc.hud, phone.from, phone.bad, phone.ignored,
-        screen.limit, screen.error, screen.shots, cam.limit, cam.signs, cam.ready, cam.error, cam.up, ownSpeed(now) !== null, pair.refused, appRun.dir, appRun.uid, appRun.by, pair.code, s.d.probe, !!probe.child, cam.map.cls, cam.map.ready, cam.up.map, camera.mapCurrent(cam, now)]);
+    applyLayers({ symbol: s.symbol, map: s.map, panel: s.panel, hud: s.hud, warn: s.over });
+    const shown = [];
+    if (s.map.visible || s.panel.visible) shown.push('map');
+    if (s.hud.visible) shown.push('hud');
+    last = { shown, why: s.why, limit: s.limit, symbol: shown.length ? s.symbol : null };
+    const key = JSON.stringify([last, renderer, fw.error, s.d, s.placing, s.reading, s.over, s.woc.map, s.woc.hud, s.xc.front, s.xc.target, phone.from, phone.bad, phone.ignored,
+        screen.limit, screen.error, screen.shots, cam.limit, cam.low, cam.signs, cam.ready, cam.error, cam.up, ownSpeed(now) !== null, pair.refused, appRun.dir, appRun.uid, appRun.by, pair.code, s.d.probe, !!probe.child, cam.map.cls, cam.map.low, cam.map.ready, cam.up.map, camera.mapCurrent(cam, now, s.d.camera)]);
     if (key !== lastKey || now - lastWrite > 2000) { writeStatus(s, now); lastKey = key; lastWrite = now; }
     return s;
 }
@@ -845,9 +914,10 @@ function writeStatus(s, now) {
     const st = {
         tool: VERSION, at: new Date(now).toISOString(), app: s.d.app, settings: s.d, port: CFG.port,
         phone: { from: phone.from, at: phone.at ? new Date(phone.at).toISOString() : null, ago_ms: phone.at ? now - phone.at : null,
-            seq: phone.seq, limit: phone.limit, test: phone.test, app: phone.ver, packets: phone.packets, ignored: phone.ignored, bad: phone.bad },
-        limit: s.limit, shown: last.shown, why: s.why,
+            seq: phone.seq, limit: phone.limit, next: phone.next || null, hint: phone.hint || null, test: phone.test, app: phone.ver, packets: phone.packets, ignored: phone.ignored, bad: phone.bad },
+        limit: s.limit, symbol: last.symbol, shown: last.shown, cluster_target: s.panel.visible ? 'panel' : s.map.visible ? 'map' : null, why: s.why,
         waze: { known: s.woc.known, fresh: s.woc.fresh, state: s.woc.state || null, map: s.woc.map, hud: s.woc.hud, hudBox: s.woc.hudBox || null },
+        xinhan: { known: s.xc.known, fresh: s.xc.fresh, front: s.xc.front, target: s.xc.target },
         placing: s.placing,
         geometry: { map: { x: s.map.x, y: s.map.y, size: s.map.size, w: MAP_W, h: MAP_H, placed: !!s.d.mapPos },
             hud: { x: s.hud.x, y: s.hud.y, size: s.hud.size, w: HUD_W, h: HUD_H, placed: !!s.d.hudPos, seen: HUD_SEEN } },
@@ -863,11 +933,13 @@ function writeStatus(s, now) {
         pairing: { on: CFG.pairing, code: CFG.pairing ? pairCode() : null, refused: pair.refused, from: pair.from, ago_ms: pair.at ? now - pair.at : null, error: pair.error },
         probe: { on: s.d.probe, running: !!probe.child, bytes: (() => { try { return fs.statSync(probeLog()).size; } catch (e) { return 0; } })() },
         app_dir_owner: appRun.dir ? { uid: appRun.uid, gid: appRun.gid, by: appRun.by } : null,
-        camera: { on: s.d.camera, ready: cam.ready, error: cam.error, up: cam.up, limit: cam.limit,
+        camera: { on: s.d.camera, ready: cam.ready, error: cam.error, up: cam.up, limit: cam.limit, low: cam.low || 0,
             at: cam.at ? new Date(cam.at).toISOString() : null, km: Math.round(cam.km * 10) / 10, seen: cam.signs,
             events: cam.events, last_event: cam.lastEventAt ? new Date(cam.lastEventAt).toISOString() : null },
-        bmwmap: { on: s.d.bmwMap, ready: cam.map.ready, error: cam.map.error, up: cam.up.map, cls: cam.map.cls, limit: camera.mapCurrent(cam, now), read: cam.map.limit,
-            unit: cam.map.unit, match: cam.map.match, next: cam.map.next, ago_ms: cam.map.at ? now - cam.map.at : null, events: cam.map.events, periodic: cam.map.periodic },
+        bmwmap: { on: s.d.bmwMap, ready: cam.map.ready, error: cam.map.error, up: cam.up.map, cls: cam.map.cls,
+            limit: camera.mapCurrent(cam, now, s.d.camera), read: cam.map.limit, low: cam.map.low || 0,
+            unit: cam.map.unit, match: cam.map.match, next: cam.map.next, next_limit: cam.map.nextLimit || 0,
+            ago_ms: cam.map.at ? now - cam.map.at : null, events: cam.map.events, periodic: cam.map.periodic },
         screen: { on: s.d.screen, reading: s.reading, limit: screen.limit, at: screen.at ? new Date(screen.at).toISOString() : null,
             shots: screen.shots, ms: screen.ms, decode_ms: screen.decodeMs, rings: screen.rings, error: screen.error,
             geometry: screen.geometry || 'full' },
@@ -896,7 +968,8 @@ function listen(onPacket) {
         if (phone.from !== rinfo.address) log('phone: ' + rinfo.address + ':' + rinfo.port + (p.ver ? ' (' + p.ver + ')' : ''));
         if (phone.limit !== p.limit) log('sign: ' + (p.limit || 'none') + (p.test ? ' (test)' : ''));
         const ver = p.ver || (phone.from === rinfo.address ? phone.ver : null);
-        Object.assign(phone, { from: rinfo.address, at: now, seq: p.seq, limit: p.limit, test: p.test, ver });
+        Object.assign(phone, { from: rinfo.address, at: now, seq: p.seq, limit: p.limit,
+            next: p.next || null, hint: p.hint || null, test: p.test, ver });
         phone.packets++;
         if (onPacket) onPacket();
         const ack = Buffer.from(JSON.stringify({ t: 'vms-ack', v: 1, seq: p.seq, car: VERSION, paired: true, shown: last.shown, why: last.why }));
@@ -946,14 +1019,14 @@ if (require.main === module) {
     else if (cmd === 'deactivate') deactivate();
     else if (cmd === 'status') process.stdout.write((readText(STATUS_FILE()) || '{}\n'));
     else if (cmd === 'sign') {
-        const n = Number(process.argv[3] || 60), S = Number(process.argv[4] || 128);
-        fs.writeFileSync('sign-' + n + '.rgba', drawSign(n, S));
-        process.stdout.write('sign-' + n + '.rgba: ' + S + 'x' + S + ' RGBA\n');
+        const raw = process.argv[3] || '60', n = raw === '---' ? '---' : Number(raw), S = Number(process.argv[4] || 128);
+        fs.writeFileSync('sign-' + raw + '.rgba', drawSign(n, S));
+        process.stdout.write('sign-' + raw + '.rgba: ' + S + 'x' + S + ' RGBA\n');
     } else { process.stderr.write('usage: node vietmap-signs.js run|deactivate|status|sign <limit> <size>\n'); process.exit(2); }
 }
 
 module.exports = {
-    VERSION, CFG, SIZES, drawSign, desired, findApp, wocStatus, geometry, decide, tick, parsePacket, allowedSender,
+    VERSION, CFG, SIZES, drawSign, desired, findApp, wocStatus, xcStatus, geometry, decide, tick, parsePacket, allowedSender,
     ensureRules, removeRules, ourRules, listen, phone, renderer, layers, _last: () => last, _cam: cam, BLINK,
     _reset: () => { appCache = null; appScanAt = 0; appRun.dir = null; appRun.checkedAt = 0; appRun.proc = null; appRun.procAt = 0; },
     appRunDir, carSpeed, preview, previewDrag, ownSpeed, pairCode, setCode, pair, appRun, readSmall, writeInto,

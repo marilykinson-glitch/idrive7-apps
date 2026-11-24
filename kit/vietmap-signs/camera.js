@@ -24,6 +24,7 @@ const path = require('path');
 const cp = require('child_process');
 
 const DEFAULT_HOLD_KM = 0.5;
+const DEFAULT_MIN_LIMIT = 10;
 
 const TARGETS = {
     camera: { iface: 'de.bmw.environmentalmodel.SignRecognitionFrontCamera', broadcasts: ['TrafficSignRecognitionFrontCamera'] },
@@ -34,29 +35,45 @@ const TARGETS = {
     map: { iface: 'de.bmw.dass.TrafficSignRecognition', broadcasts: ['TrafficSignRecognition'] },
 };
 // presentClassLimitSpeed is a class, not km/h. Seen on a G30 with the cluster's sign beside it: 6 = 30;
-// 254 with no sign (and unitOfMeasurementSpeedLimit 2); 1 while creeping off the road (5, as inner roads are
-// mapped). Class x 5 km/h for 1..30 (5..150): confirmed on the car against the cluster's own sign at 30, 50
-// and 60. Any other class is no sign, never a guess; the class is shown beside the limit on the app's screen.
+// 254 with no sign (and unitOfMeasurementSpeedLimit 2); 1 while creeping off the road / in a garage (5 km/h,
+// inner/parking zones, filtered out by default when minLimit is 10 so off-road zones show "---" instead).
+// Class x 5 km/h for 1..30 (5..150): confirmed on the car against the cluster's own sign at 30, 50 and 60.
 const MAP_NONE = 254, MAP_MAX_CLASS = 30, MAP_HOLD_KM = 1, MAP_STALE_MS = 10000;
+const WITHDRAWN = /^(WITHDRAW|CANCEL|END|DERESTRICT|UNLIMITED)/i;
+const OFF_ROAD = /(OFF_?ROAD|PARKING|GARAGE|UNPAVED|NO_?MATCH|INVALID)/i;
+const CAM_ONLY_MATCH = /CAMERA_?ONLY/i;
 
-/** What one TrafficSignRecognition value says: { cls, limit (km/h, 0: none), unit, match, next }. */
-function mapPick(v) {
+/** What one TrafficSignRecognition value says: { cls, limit (km/h, 0: none), low, unit, match, next, nextLimit }. */
+function mapPick(v, minLimit) {
     if (!v || typeof v !== 'object') return null;
+    const min = Number.isFinite(minLimit) && minLimit >= 5 ? minLimit : DEFAULT_MIN_LIMIT;
     const cls = Number(v.presentClassLimitSpeed), unit = Number(v.unitOfMeasurementSpeedLimit);
     if (!Number.isFinite(cls)) return null;
-    const kmh = Number.isInteger(cls) && cls >= 1 && cls <= MAP_MAX_CLASS && (!Number.isFinite(unit) || unit === 0) ? cls * 5 : 0;
-    return { cls, limit: kmh, unit: Number.isFinite(unit) ? unit : null, match: Number.isFinite(Number(v.statusDataMatchingCameraADAS)) ? Number(v.statusDataMatchingCameraADAS) : null,
-        next: Number.isFinite(Number(v.nextClassLimitSpeed)) ? Number(v.nextClassLimitSpeed) : null };
+    const wd = v.presentWithdrawalLimitSpeed, stType = v.statusStreetTyp, dm = v.statusDataMatchingCameraADAS;
+    const withdrawn = typeof wd === 'string' && !/^(NO_|NOT_|NONE|SIGNAL_UNFILLED)/i.test(wd) && WITHDRAWN.test(wd);
+    const offRoad = (typeof stType === 'string' && OFF_ROAD.test(stType)) || (typeof dm === 'string' && OFF_ROAD.test(dm)) || dm === 0;
+    const raw = !withdrawn && !offRoad && Number.isInteger(cls) && cls >= 1 && cls <= MAP_MAX_CLASS && (!Number.isFinite(unit) || unit === 0) ? cls * 5 : 0;
+    const kmh = raw >= min ? raw : 0;
+    const low = raw > 0 && raw < min ? raw : 0;
+    const next = Number.isFinite(Number(v.nextClassLimitSpeed)) ? Number(v.nextClassLimitSpeed) : null;
+    const nextRaw = next !== null && Number.isInteger(next) && next >= 1 && next <= MAP_MAX_CLASS && (!Number.isFinite(unit) || unit === 0) ? next * 5 : 0;
+    const matchVal = Number.isFinite(Number(dm)) ? Number(dm) : (typeof dm === 'string' ? dm : null);
+    return { cls, limit: kmh, low, unit: Number.isFinite(unit) ? unit : null, match: matchVal,
+        next, nextLimit: nextRaw >= min ? nextRaw : 0 };
 }
 
 /** A value came: kept with when and how far the car had driven; whether they come by the clock is learnt. */
 function onMap(st, v, now, log) {
-    const p = mapPick(v);
+    const p = mapPick(v, st.minLimit);
     if (!p) return;
     const m = st.map;
     if (m.at && now - m.at < 3000 && now > m.at) { if (++m.quick >= 5) m.periodic = true; } else m.quick = 0;
-    if (p.cls !== m.cls && log) log('map: class ' + p.cls + (p.limit ? ' = ' + p.limit + ' km/h' : p.cls === MAP_NONE ? ' (no sign)' : ' (not a limit known here)'));
-    m.cls = p.cls; m.limit = p.limit; m.unit = p.unit; m.match = p.match; m.next = p.next; m.at = now; m.odo = st.odo; m.events++;
+    if (p.cls !== m.cls && log) {
+        log('map: class ' + p.cls + (p.limit ? ' = ' + p.limit + ' km/h' : p.low ? ' (' + p.low + ' km/h inner/parking, ignored)'
+            : p.cls === MAP_NONE ? ' (no sign)' : ' (not a limit known here)'));
+    }
+    m.cls = p.cls; m.limit = p.limit; m.low = p.low; m.unit = p.unit; m.match = p.match; m.next = p.next; m.nextLimit = p.nextLimit;
+    m.raw = v; m.at = now; m.odo = st.odo; m.events++;
 }
 
 /**
@@ -64,14 +81,19 @@ function onMap(st, v, now, log) {
  * there, when values that came by the clock stop for 10 s, and (values that come only at a change) once
  * 1 km is driven or 15 min pass without a word.
  */
-function mapCurrent(st, now) {
+function mapCurrent(st, now, cameraAllowed) {
     const m = st.map;
-    if (!m.limit || !m.at) return 0;
+    if (!m.at) return 0;
+    // re-evaluate against current minLimit in case setting changed between 5 and 10
+    const p = m.raw ? mapPick(m.raw, st.minLimit) : null;
+    const lim = p ? p.limit : m.limit;
+    if (!lim) return 0;
+    if (cameraAllowed === false && typeof m.match === 'string' && CAM_ONLY_MATCH.test(m.match)) return 0;
     if (st.up.map === false) return 0;
     if (now < m.at - 5000) return 0;
-    if (m.periodic) return now - m.at <= MAP_STALE_MS ? m.limit : 0;
+    if (m.periodic) return now - m.at <= MAP_STALE_MS ? lim : 0;
     if (st.odo - m.odo > MAP_HOLD_KM || now - m.at > st.holdMin * 60000) return 0;
-    return m.limit;
+    return lim;
 }
 // a plate that says the sign is for another vehicle, or only sometimes / further on
 const NOT_FOR_US = /TRUCK|TRAILER|BUS|LORRY|HGV|WEIGHT|TONN|TRACTOR|HAZARD|DANGEROUS|RAIN|SNOW|FOG|WET|ICE|TIME|DISTANCE|EXIT|SCHOOL|WORK|NIGHT|DAY|ARROW/;
@@ -80,28 +102,33 @@ const SPEED = /SPEED_LIMIT/, NOT_A_LIMIT = /END|CANCEL|MINIMUM|RECOMMEND|ADVIS|Z
 const END = /(END|CANCEL|DERESTRICT)/, ENDS_WHAT = /(SPEED|LIMIT|ALL_RESTRICTION|RESTRICTIONS)/;
 
 /** What one camera event says for a car: { limit (0: none), end, values (all speed limits seen), single }; null: nothing. */
-function pick(v) {
+function pick(v, minLimit) {
     if (!v || typeof v !== 'object' || !Array.isArray(v.trafficSign)) return null;
     if (v.eventDataQualifier && v.eventDataQualifier !== 'EVENT_DATA_AVAILABLE') return null;
+    const min = Number.isFinite(minLimit) && minLimit >= 5 ? minLimit : DEFAULT_MIN_LIMIT;
     const r = v.trafficSignRecognition || {};
     if (r.speedLimitUnit && r.speedLimitUnit !== 'KM_H') return null;
     const n = Number.isFinite(r.numberSigns) ? r.numberSigns : v.trafficSign.length;
     const signs = v.trafficSign.slice(0, n);
     const count = {}, values = [];
-    let end = false;
+    let end = false, low = 0;
     signs.forEach((g) => {
         const type = String(g && g.type || '');
         if (END.test(type) && ENDS_WHAT.test(type)) { end = true; return; }
         if (!SPEED.test(type) || NOT_A_LIMIT.test(type)) return;
         const value = Number(g.value);
         if (!(value >= 5 && value <= 150 && value % 5 === 0)) return;
+        if (value < min) { low = value; return; }
         values.push(value);
         const plates = [g.firstSupplementalType, g.secondSupplementalType, g.additionalInfo].map((x) => String(x || ''));
         if (plates.some((x) => !PLAIN.test(x) && NOT_FOR_US.test(x))) return;
         count[value] = (count[value] || 0) + 1;
     });
     const kept = Object.keys(count).map(Number);
-    if (!kept.length) return values.length || end ? { limit: 0, end, values, single: false } : null;
+    if (!kept.length) {
+        if (low && !values.length && !end) return { limit: 0, end: false, values: [], single: false, low };
+        return values.length || end ? { limit: 0, end, values, single: false } : null;
+    }
     kept.sort((a, b) => count[b] - count[a] || b - a);
     return { limit: kept[0], end: false, values, single: kept.length === 1 };
 }
@@ -110,19 +137,22 @@ function pick(v) {
 function createState(opts) {
     opts = opts || {};
     return {
-        holdKm: Number.isFinite(opts.holdKm) && opts.holdKm > 0 ? opts.holdKm : DEFAULT_HOLD_KM, holdMin: opts.holdMin || 15, confirmMs: opts.confirmMs || 8000,
-        limit: 0, at: 0, km: 0, candidate: 0, candidateAt: 0, events: 0, signs: '', lastEventAt: 0,
-        speed: null, speedAt: 0, up: { camera: null, speed: null, map: null }, error: null, ready: false,
+        holdKm: Number.isFinite(opts.holdKm) && opts.holdKm > 0 ? opts.holdKm : DEFAULT_HOLD_KM,
+        holdMin: opts.holdMin || 15, parkMin: opts.parkMin || 3, confirmMs: opts.confirmMs || 8000,
+        minLimit: Number.isFinite(opts.minLimit) && opts.minLimit >= 5 ? opts.minLimit : DEFAULT_MIN_LIMIT,
+        limit: 0, low: 0, at: 0, km: 0, candidate: 0, candidateAt: 0, events: 0, signs: '', lastEventAt: 0,
+        speed: null, speedAt: 0, stillAt: 0, up: { camera: null, speed: null, map: null }, error: null, ready: false,
         odo: 0,         // km driven since the start (st.km starts again at each camera sign)
-        map: { cls: null, limit: 0, unit: null, match: null, next: null, at: 0, odo: 0, events: 0, quick: 0, periodic: false, error: null, ready: false },
+        map: { cls: null, limit: 0, low: 0, unit: null, match: null, next: null, nextLimit: 0, raw: null, at: 0, odo: 0, events: 0, quick: 0, periodic: false, error: null, ready: false },
     };
 }
 
 function onEvent(st, v, now, log) {
     st.events++;
     st.lastEventAt = now;
-    const p = pick(v);
+    const p = pick(v, st.minLimit);
     if (!p) return st.limit;
+    st.low = p.low || 0;
     st.signs = p.values.join(',') + (p.end ? ' end' : '');
     if (p.limit) {
         const take = !st.limit || p.limit === st.limit || p.single
@@ -149,15 +179,21 @@ function onSpeed(st, v, now) {
     }
     st.speed = Math.round(kmh * 10) / 10;
     st.speedAt = now;
+    if (st.speed <= 1) { if (!st.stillAt) st.stillAt = now; } else st.stillAt = 0;
 }
 
-/** The limit in force now, 0 for none; drops it once driven past or held too long. */
+/** The limit in force now, 0 for none; drops it once driven past, parked, or held too long. */
 function current(st, now, log) {
     if (!st.limit) return 0;
+    if (st.limit < (st.minLimit || DEFAULT_MIN_LIMIT)) {
+        st.low = st.limit; st.limit = 0; st.km = 0;
+        return 0;
+    }
     const driven = st.km + 1e-9 >= st.holdKm;
-    const stale = (st.speed === null || now - st.speedAt > 5000) && now - st.at > st.holdMin * 60000;
-    if (driven || stale) {
-        if (log) log('camera: ' + st.limit + ' dropped (' + (driven ? st.km.toFixed(1) + ' km driven' : 'held ' + st.holdMin + ' min') + ')');
+    const stale = now - st.at > st.holdMin * 60000;
+    const parked = !!(st.stillAt && now - st.stillAt > (st.parkMin || 3) * 60000 && now - st.at > (st.parkMin || 3) * 60000);
+    if (driven || stale || parked) {
+        if (log) log('camera: ' + st.limit + ' dropped (' + (driven ? st.km.toFixed(1) + ' km driven' : parked ? 'parked ' + (st.parkMin || 3) + ' min' : 'held ' + st.holdMin + ' min') + ')');
         st.limit = 0; st.km = 0;
     }
     return st.limit;
@@ -250,4 +286,4 @@ function start(st, o) {
     return held;
 }
 
-module.exports = { mapPick, onMap, mapCurrent, MAP_NONE, DEFAULT_HOLD_KM, pick, createState, onEvent, onSpeed, current, speed, start, TARGETS };
+module.exports = { mapPick, onMap, mapCurrent, MAP_NONE, DEFAULT_HOLD_KM, DEFAULT_MIN_LIMIT, pick, createState, onEvent, onSpeed, current, speed, start, TARGETS };

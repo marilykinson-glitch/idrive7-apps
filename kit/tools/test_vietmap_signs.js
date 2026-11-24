@@ -11,7 +11,7 @@ const path = require('path');
 const dgram = require('dgram');
 
 const T = fs.mkdtempSync(path.join(os.tmpdir(), 'vms-'));
-const D = { proc: path.join(T, 'proc'), oap: path.join(T, 'oap'), run: path.join(T, 'run'), wocRun: path.join(T, 'wocrun'), bin: path.join(T, 'bin'), state: path.join(T, 'state') };
+const D = { proc: path.join(T, 'proc'), oap: path.join(T, 'oap'), run: path.join(T, 'run'), wocRun: path.join(T, 'wocrun'), xcRun: path.join(T, 'xcrun'), bin: path.join(T, 'bin'), state: path.join(T, 'state') };
 Object.keys(D).forEach((k) => fs.mkdirSync(D[k], { recursive: true }));
 
 // nft: the input chain as a file of rules, "-a list" with handles, insert, delete by handle
@@ -55,7 +55,7 @@ module.exports = { ClusterRender, calls };
 
 const PORT = 18000 + (process.pid % 2000);
 Object.assign(process.env, {
-    VMS_PROC: D.proc, VMS_OAP: D.oap, VMS_RUN: D.run, VMS_STATE: D.state, VMS_WOC_RUN: D.wocRun, VMS_NFT: path.join(D.bin, 'nft'), VMS_CR_CLIENT: FAKE_CR,
+    VMS_PROC: D.proc, VMS_OAP: D.oap, VMS_RUN: D.run, VMS_STATE: D.state, VMS_WOC_RUN: D.wocRun, VMS_XC_RUN: D.xcRun, VMS_NFT: path.join(D.bin, 'nft'), VMS_CR_CLIENT: FAKE_CR,
     VMS_PORT: String(PORT), VMS_LOOPBACK: '1', VMS_PHONE_STALE_MS: '600', VMS_RULE_MS: '100000000',
     VMS_GRABBER: path.join(T, 'no-grabber-yet'), VMS_SCREEN_MS: '50', VMS_XDG_RUNTIME_DIR: '/run/wayland-test',
 });
@@ -112,6 +112,18 @@ function sendNoAnswer(msg) {
     for (let y = 40; y < 88; y++) for (let x = 20; x < 108; x++) if (at(x, y)[0] < 60) ink++;
     assert(ink > 600, 'digits drawn: ' + ink);
     assert.strictEqual(vms.drawSign(120, 96).length, 96 * 96 * 4);
+    // OEM BMW 3 horizontal dashes ("---") when there is no limit
+    const pxDash = vms.drawSign('---', S);
+    const atD = (x, y) => Array.from(pxDash.slice((y * S + x) * 4, (y * S + x) * 4 + 4));
+    assert.deepStrictEqual(atD(S / 2, Math.round(S * 0.25)), [255, 255, 255, 255], 'white above the 3 dashes');
+    assert(atD(S / 2, S / 2)[0] < 40, 'middle dash is dark');
+    let transitions = 0, prevDark = false;
+    for (let x = 20; x < 108; x++) {
+        const dark = atD(x, S / 2)[0] < 80;
+        if (dark && !prevDark) transitions++;
+        prevDark = dark;
+    }
+    assert.strictEqual(transitions, 3, 'three distinct horizontal dashes');
 
     // --- the phone's datagrams ---
     assert.deepStrictEqual(vms.parsePacket(Buffer.from('{"t":"vms","v":1,"seq":4,"limit":60,"app":"vmsign 0.1.0"}')),
@@ -127,7 +139,7 @@ function sendNoAnswer(msg) {
 
     // --- settings: the defaults without the app, then the app's ---
     let d = vms.desired(Date.now());
-    assert.deepStrictEqual(d, { app: null, on: true, show: 'both', side: 'right', hudSide: 'left', size: 'medium', screen: true, camera: true, probe: false, bmwMap: true, warn: 5, mapPos: null, hudPos: null });
+    assert.deepStrictEqual(d, { app: null, on: true, show: 'both', side: 'right', hudSide: 'left', size: 'medium', screen: false, camera: true, probe: false, bmwMap: true, empty: 'dashes', frontcam: true, minLimit: 10, warn: 5, mapPos: null, hudPos: null });
     vms._reset();
     const app = installApp(12301, 'vietmap_signs2');
     assert.strictEqual(vms.desired(Date.now()).app, 'vietmap_signs2');
@@ -218,8 +230,15 @@ function sendNoAnswer(msg) {
     vms.tick();
     assert(calls('set').some((c) => c[2].guide_hold === 0), 'guide_hold follows Waze on cluster');
 
-    // no sign in VietMap; then the phone goes quiet
+    // no sign in VietMap: by default ("empty": "dashes"), the BMW 3-dash "---" sign stays on the cluster!
     a = await send({ t: 'vms', v: 1, seq: 8, limit: 0 });
+    assert.deepStrictEqual(a.shown, ['map'], 'BMW 3-dash sign stays shown on the map');
+    assert.strictEqual(status().symbol, '---');
+    assert.strictEqual(status().limit, null);
+    assert.strictEqual(a.why, 'no sign in VietMap');
+    // with "empty": "hide", the sign hides when there is no limit
+    app.settings({ show: 'cluster', size: 'large', side: 'left', empty: 'hide' });
+    a = await send({ t: 'vms', v: 1, seq: 81, limit: 0 });
     assert.deepStrictEqual(a.shown, []);
     assert.strictEqual(a.why, 'no sign in VietMap');
     await send({ t: 'vms', v: 1, seq: 9, limit: 70 });
@@ -275,9 +294,34 @@ function sendNoAnswer(msg) {
     assert.strictEqual(calls('image').length, images, 'no new layer for a move');
     assert.deepStrictEqual(vms.tick().map.visible, true);
     fs.writeFileSync(path.join(data, 'preview.json'), JSON.stringify({ at: new Date(Date.now() - 10000).toISOString() }));
+    app.settings({ mapX: 510, mapY: 300, hudX: 760, hudY: -20, empty: 'hide' });
     s = vms.tick();
     assert.strictEqual(s.placing, false);
-    assert.deepStrictEqual(vms._last().shown, [], 'the page closed: no sign without the phone');
+    assert.deepStrictEqual(vms._last().shown, [], 'the page closed with empty=hide: hidden without a limit');
+    app.settings({});
+    s = vms.tick();
+    assert.deepStrictEqual(vms._last().shown.sort(), ['hud', 'map'], 'default empty=dashes: "---" shown on both');
+
+    // --- Camera xi nhan's front camera on the cluster: sign drawn over it at z 950 (map and panel) ---
+    woc({ state: 'idle', cluster: 1, hud: 0, hud_state: 'idle' });
+    const xc = (obj) => fs.writeFileSync(path.join(D.xcRun, 'status.json'), JSON.stringify(Object.assign({ at: new Date().toISOString(), version: '0.7.10', view: 'front' }, obj)));
+    xc({ native: { shown: 1, view: 'front', target: 'map', layer: 'shown', layer_w: 640, layer_h: 288, layer_x: 224, layer_y: 96 } });
+    a = await send({ t: 'vms', v: 1, seq: 15, limit: 50 });
+    assert.deepStrictEqual(a.shown, ['map'], 'shown over front camera on map target even with Waze idle');
+    assert(calls('image').some((c) => c[1].target === 'map' && c[1].z === 950), 'map sign at z 950 above mgu-sidecam (z 900)');
+    // dual mode on panel (turn signal + front camera): sign follows onto panel at (416+x, 120+y)
+    xc({ native: { shown: 1, view: 'front', target: 'panel', layer: 'shown', layer_w: 640, layer_h: 288, layer_x: 640, layer_y: 216 } });
+    s = vms.tick();
+    assert.strictEqual(s.panel.visible, true, 'panel layer shown when front camera is on panel');
+    assert.strictEqual(s.map.visible, false, 'map layer hidden while panel holds the sign');
+    assert.strictEqual(status().cluster_target, 'panel');
+    assert(calls('image').some((c) => c[1].target === 'panel' && c[1].z === 950 && c[1].x === 416 + 760 && c[1].y === 120 + 36), 'panel sign aligned with map sign');
+    // frontcam setting off: does not draw over front camera
+    app.settings({ frontcam: 'off' });
+    s = vms.tick();
+    assert.deepStrictEqual(vms._last().shown, [], 'frontcam off: hidden when Waze is idle');
+    xc({ view: 'none', native: { shown: 0, view: 'none', target: 'map' } });
+    app.settings({});
 
     // --- the centre screen (CarPlay): the sign read in BMW's grabber's picture ---
     const FIX = path.join(__dirname, 'fixtures');
@@ -586,6 +630,9 @@ fs.mkdirSync(out); fs.writeFileSync(out + '/' + i.replace(/\\./g, '_') + '.json'
     const TSR = (cls, unit) => ({ presentWithdrawalLimitSpeed: 1, presentClassLimitSpeed: cls, nextClassLimitSpeed: 254, unitOfMeasurementSpeedLimit: unit || 0, statusDataMatchingCameraADAS: 6, statusStreetTyp: 3 });
     assert.strictEqual(camera.mapPick(TSR(6)).limit, 30, 'class 6: 30 km/h (Tran Van Tra, with the cluster showing 30)');
     assert.strictEqual(camera.mapPick(TSR(12)).limit, 60);
+    assert.deepStrictEqual([camera.mapPick(TSR(1)).limit, camera.mapPick(TSR(1)).low], [0, 5], 'class 1 (5 km/h inner/garage): ignored by default');
+    assert.strictEqual(camera.mapPick(TSR(1), 5).limit, 5, 'class 1 allowed when minLimit is 5');
+    assert.deepStrictEqual([camera.pick(ev([SL(5)])).limit, camera.pick(ev([SL(5)])).low], [0, 5], 'camera 5 km/h in garage: ignored by default');
     assert.strictEqual(camera.mapPick(TSR(254, 2)).limit, 0, '254: no sign');
     assert.strictEqual(camera.mapPick(TSR(31)).limit, 0, 'a class not known: none, never a guess');
     assert.strictEqual(camera.mapPick(TSR(6, 1)).limit, 0, 'another unit: none');

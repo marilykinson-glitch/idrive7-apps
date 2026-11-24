@@ -1,8 +1,8 @@
 {
   "id": "vietmap_cluster",
-  "title": "VietMap on cluster",
-  "description": "The centre screen's map (VietMap Live on Android Auto, or any app shown there) on the instrument cluster and the HUD, through Waze on cluster: on or off, three views. Its helper (vietmap-cluster) installs with it; Waze on cluster must be installed. Patches nothing; off, Waze on cluster shows the phone's own cluster map again.",
-  "version": "0.1.0",
+  "title": "VietMap trên đồng hồ",
+  "description": "Đưa bản đồ trên màn hình giữa (VietMap Live trên Android Auto, hoặc bất kỳ ứng dụng nào đang mở) lên đồng hồ và HUD thông qua Waze on cluster: bật/tắt nhanh, 3 mức khung nhìn. Trợ thủ vietmap-cluster tự cài kèm; cần có Waze on cluster. Không can thiệp hệ thống; khi tắt, Waze on cluster hiện lại bản đồ đồng hồ gốc của điện thoại.",
+  "version": "0.1.1",
   "vendor": "custom",
   "loggingId": "OAA4",
   "iconGlyph": "flag",
@@ -13,25 +13,25 @@
     {
       "name": "MAIN",
       "kind": "canvas",
-      "title": "VietMap on cluster",
+      "title": "VietMap trên đồng hồ",
       "buttons": [
-        ["BTN_ON", "On"],
-        ["BTN_OFF", "Off"],
-        ["BTN_VIEW", "Next view"],
-        ["BTN_SETTINGS", "Settings"]
+        ["BTN_ON", "Bật"],
+        ["BTN_OFF", "Tắt"],
+        ["BTN_VIEW", "Chế độ xem tiếp"],
+        ["BTN_SETTINGS", "Cài đặt"]
       ]
     }
   ],
   "settings": [
-    {"key": "mode", "label": "Centre screen on the cluster", "type": "choice", "default": "off",
-     "options": [["off", "Off · the phone's own cluster map"], ["on", "On · the centre screen's map"]]},
-    {"key": "view", "label": "View", "type": "choice", "default": "fit",
-     "options": [["fit", "Whole map"], ["zoom1", "Zoom 1.25×"], ["zoom2", "Zoom 1.5×"]]},
-    {"key": "theme", "label": "Colour theme", "type": "choice", "default": "m_tricolour",
+    {"key": "mode", "label": "Màn giữa lên đồng hồ", "type": "choice", "default": "off",
+     "options": [["off", "Tắt · bản đồ đồng hồ của điện thoại"], ["on", "Bật · bản đồ trên màn giữa"]]},
+    {"key": "view", "label": "Chế độ xem", "type": "choice", "default": "fit",
+     "options": [["fit", "Toàn bản đồ"], ["zoom1", "Phóng to 1.25×"], ["zoom2", "Phóng to 1.5×"]]},
+    {"key": "theme", "label": "Màu giao diện", "type": "choice", "default": "m_tricolour",
      "options": [["m_red", "M Red"], ["m_tricolour", "M Tricolour"], ["ice", "Ice White"], ["amber", "Night Amber"]]},
-    {"key": "layout", "label": "Screen layout", "type": "choice", "default": "full",
-     "options": [["full", "Full screen"], ["standard", "Standard"]]},
-    {"key": "renderer", "label": "Renderer", "type": "choice", "default": "auto",
-     "options": [["auto", "GPU 60 fps (default)"], ["software", "Software"]]}
+    {"key": "layout", "label": "Bố cục màn hình", "type": "choice", "default": "full",
+     "options": [["full", "Toàn màn hình"], ["standard", "Tiêu chuẩn"]]},
+    {"key": "renderer", "label": "Bộ vẽ", "type": "choice", "default": "auto",
+     "options": [["auto", "GPU 60 fps (mặc định)"], ["software", "Phần mềm"]]}
   ]
 }

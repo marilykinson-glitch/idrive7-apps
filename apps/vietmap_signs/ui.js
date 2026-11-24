@@ -48,14 +48,27 @@ function hit(px, py) {
     return null;
 }
 
-function sign(cv, cx, cy, R, limit, t, G) {
-    const on = !!limit;
+function sign(cv, cx, cy, R, limit, t, G, dashes) {
+    const num = !!limit;
+    const on = num || !!dashes;
     cv.circle(cx, cy, R, on ? '#ffffff' : G.withAlpha('#ffffff', 0.25));
     cv.circle(cx, cy, R * 0.93, on ? '#d71920' : G.withAlpha('#ffffff', 0.18));
     cv.circle(cx, cy, R * 0.69, on ? '#ffffff' : (t.bg || '#101418'));
-    const text = on ? String(limit) : '–';
-    const size = text.length >= 3 ? R * 0.62 : R * 0.78;
-    cv.text(text, cx, cy + size * 0.36, size, on ? '#111111' : t.dim, { align: 'center', font: 'bold' });
+    if (num) {
+        const text = String(limit);
+        const size = text.length >= 3 ? R * 0.62 : R * 0.78;
+        cv.text(text, cx, cy + size * 0.36, size, '#111111', { align: 'center', font: 'bold' });
+        return;
+    }
+    // OEM BMW 3 horizontal dashes ("---")
+    const rIn = R * 0.69;
+    const spanW = 2 * rIn * 0.72, dashW = spanW / 3.9, gapW = dashW * 0.45;
+    const dashH = Math.max(3, R * 0.125), rad = Math.max(1, dashH * 0.25);
+    const ink = on ? '#111111' : (t.dim || G.withAlpha('#ffffff', 0.4));
+    for (let k = -1; k <= 1; k++) {
+        const dx = cx + k * (dashW + gapW) - dashW / 2;
+        cv.roundRect(dx, cy - dashH / 2, dashW, dashH, rad, ink);
+    }
 }
 
 function drawPosition(cv, G, t, v, act) {
@@ -153,9 +166,9 @@ function draw(cv, G, t, v, act) {
 
     // --- the sign ---
     const cx = 330, cy = G.TOP + 175, R = 118;
-    sign(cv, cx, cy, R, v.limit || v.phoneLimit, t, G);
+    sign(cv, cx, cy, R, v.limit || v.phoneLimit, t, G, v.dashes && v.on);
     const cap = v.limit ? (v.source === 'camera' ? "BMW camera's sign" : v.source === 'bmwmap' ? "BMW map's sign" : v.source === 'phone' ? 'From VietMap' : 'On the cluster now')
-        : v.phoneLimit ? 'From the phone, not shown' : 'No sign from the phone';
+        : v.phoneLimit ? 'From the phone, not shown' : v.symbol === '---' ? 'No sign · showing ---' : 'No sign from the phone';
     cv.text(cap, cx, cy + R + 40, 18, t.dim, { align: 'center', font: 'label' });
     // where BMW's own sign comes from: each source's word, small
     if (v.bmwView) cv.text('BMW  ' + v.bmwView, 64, G.TOP + 420, 14, t.dim, { font: 'label' });

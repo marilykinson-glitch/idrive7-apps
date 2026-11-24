@@ -132,6 +132,10 @@ final class CarLink {
             m.put("v", 1);
             m.put("seq", ++seq);
             m.put("limit", out);
+            int nextOut = Engine.outgoingNext();
+            String hintOut = Engine.outgoingHint();
+            if (nextOut > 0) m.put("next", nextOut);
+            if (hintOut.length() > 0) m.put("hint", hintOut);
             m.put("app", "vmsign " + Engine.VERSION);
             if (code.length() > 0) m.put("code", code);
             if (Engine.testing()) m.put("test", 1);

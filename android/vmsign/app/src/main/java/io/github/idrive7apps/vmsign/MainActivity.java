@@ -67,7 +67,8 @@ public class MainActivity extends Activity {
     private Button detailsBtn;
     private TextView pkgs, diag;
     private ImageView shotScreen;
-    private Bitmap shownScreen;
+    private static volatile Bitmap shownScreen;
+    static Bitmap shownRef() { return shownScreen; }
     private String itemsSig = "", todoSig = "";
     private ScrollView scroll;
     /** When this screen came to the front: the reader is given a few seconds to start before it counts as not running. */
@@ -316,7 +317,10 @@ public class MainActivity extends Activity {
         // the car
         if (wrong) set(carDot, carLine, RED, "Xe báo sai mã ghép đôi");
         else if (carSeen) {
-            String shown = Engine.carShown.length() > 0 ? "đang hiện trên " + Engine.carShown : "chưa hiện: " + Engine.why(Engine.carWhy);
+            boolean noSignWhy = "no sign in VietMap".equals(Engine.carWhy) || "no sign on this road".equals(Engine.carWhy);
+            String shown = Engine.carShown.length() > 0
+                    ? (n == 0 && noSignWhy ? "đang hiện biển --- trên " + Engine.carShown : "đang hiện trên " + Engine.carShown)
+                    : "chưa hiện: " + Engine.why(Engine.carWhy);
             set(carDot, carLine, Engine.carShown.length() > 0 ? GREEN : Color.WHITE, "Đã nối · " + shown);
         } else if (Engine.carAddr != null) set(carDot, carLine, AMBER, "Mất liên lạc (" + ago(now - Engine.ackAt) + ")");
         else set(carDot, carLine, AMBER, "Chưa thấy xe");

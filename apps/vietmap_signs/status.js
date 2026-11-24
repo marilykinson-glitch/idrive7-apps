@@ -83,14 +83,23 @@ function report(s, want, bmw) {
         lines.push(c.error ? { text: 'BMW camera: ' + c.error, kind: 'warn' }
             : !c.ready ? { text: 'BMW camera: starting', kind: 'dim' }
                 : c.limit ? { text: 'BMW camera: sign ' + c.limit + (c.seen ? ' · seen ' + c.seen : ''), kind: 'go' }
-                    : { text: 'BMW camera: no speed sign now', kind: 'dim' });
+                    : c.low ? { text: 'BMW camera: ignored ' + c.low + ' (inner road)', kind: 'dim' }
+                        : { text: 'BMW camera: no speed sign now', kind: 'dim' });
     }
     const bm = s.bmwmap;
     if (bm && bm.on) {
+        const nextTxt = bm.next_limit ? ' · ahead ' + bm.next_limit : '';
         lines.push(bm.error ? { text: 'BMW map: ' + bm.error, kind: 'warn' }
             : !bm.ready ? { text: 'BMW map: starting', kind: 'dim' }
-                : bm.limit ? { text: 'BMW map: sign ' + bm.limit + ' · code ' + bm.cls, kind: 'go' }
-                    : { text: 'BMW map: no sign' + (bm.cls !== null && bm.cls !== undefined ? ' · code ' + bm.cls : ''), kind: 'dim' });
+                : bm.limit ? { text: 'BMW map: sign ' + bm.limit + ' · code ' + bm.cls + nextTxt, kind: 'go' }
+                    : bm.low ? { text: 'BMW map: no sign · code ' + bm.cls + ' (' + bm.low + ' inner road)', kind: 'dim' }
+                        : { text: 'BMW map: no sign' + (bm.cls !== null && bm.cls !== undefined ? ' · code ' + bm.cls : ''), kind: 'dim' });
+    }
+    if (p.at && p.ago_ms < 5000 && (p.next || p.hint)) {
+        const parts = [];
+        if (p.next) parts.push('ahead ' + p.next);
+        if (p.hint) parts.push(p.hint);
+        lines.push({ text: 'VietMap alert: ' + parts.join(' · '), kind: 'go' });
     }
     if (bmw && bmw.available === false) lines.push({ text: 'BMW sign: no signal', kind: 'dim' });
     else if (bmw && bmw.valid) lines.push({ text: 'BMW sign: ' + bmw.limit + ' km/h' + (bmw.source ? ' (' + bmw.source + ')' : ''), kind: 'dim' });
@@ -99,13 +108,17 @@ function report(s, want, bmw) {
     const shown = s.shown || [];
     // the renderer's word on a layer that should show but does not (yet)
     const layer = (t) => {
-        const l = s.renderer && s.renderer.layers && s.renderer.layers[t];
+        const key = t === 'map' && s.cluster_target === 'panel' ? 'panel' : t;
+        const l = s.renderer && s.renderer.layers && s.renderer.layers[key];
         return l && l.state && l.state !== 'shown' ? ' · ' + l.state + (l.reason ? ' (' + l.reason + ')' : '') : '';
     };
-    lines.push({ text: 'Cluster: ' + (shown.indexOf('map') >= 0 ? 'shown' + layer('map') : s.waze && s.waze.map ? 'map shown, no sign' : 'no map'), kind: shown.indexOf('map') >= 0 ? 'go' : 'dim' });
+    const xcFront = !!(s.xinhan && s.xinhan.front);
+    const clusterWhere = xcFront ? ' (front camera)' : '';
+    lines.push({ text: 'Cluster: ' + (shown.indexOf('map') >= 0 ? 'shown' + clusterWhere + layer('map') : (s.waze && s.waze.map) || xcFront ? 'map shown, no sign' : 'no map'), kind: shown.indexOf('map') >= 0 ? 'go' : 'dim' });
     lines.push({ text: 'HUD: ' + (shown.indexOf('hud') >= 0 ? 'shown' + layer('hud') : s.waze && s.waze.hud ? 'map shown, no sign' : 'no map'), kind: shown.indexOf('hud') >= 0 ? 'go' : 'dim' });
     let note, noteKind = 'dim';
-    const pending = s.settings && want && (s.settings.on !== want.on || s.settings.show !== want.show);
+    const pending = s.settings && want && (s.settings.on !== want.on || s.settings.show !== want.show
+        || (want.empty !== undefined && s.settings.empty !== want.empty));
     if (pending) note = 'Switching · a second';
     else if (s.renderer && s.renderer.error && !(s.renderer.installed === false)) { note = s.renderer.error; noteKind = 'warn'; }
     else if (s.firewall && s.firewall.error) { note = 'Firewall: ' + s.firewall.error; noteKind = 'warn'; }
@@ -113,7 +126,8 @@ function report(s, want, bmw) {
     else if (unpaired) { note = 'Type the pairing code (Pairing tab) into the phone app'; noteKind = 'warn'; }
     else note = WHY[s.why] || s.why || '';
     if (/install/i.test(note || '')) noteKind = 'warn';
-    return { unpaired: !!unpaired, limit: s.limit || null, phoneLimit: p.limit || null, source: s.source || null, lines, note, noteKind, pending: !!pending, bmwView: bmw && bmw.view };
+    const dashes = !s.limit && (s.symbol === '---' || (want ? want.on && want.empty !== 'hide' : s.settings && s.settings.on && s.settings.empty !== 'hide'));
+    return { unpaired: !!unpaired, limit: s.limit || null, dashes: !!dashes, symbol: s.symbol || null, phoneLimit: p.limit || null, source: s.source || null, lines, note, noteKind, pending: !!pending, bmwView: bmw && bmw.view };
 }
 
 /**

@@ -1,8 +1,8 @@
 {
   "id": "vietmap_signs",
   "title": "Biển báo VietMap",
-  "description": "Hiện biển tốc độ lên đồng hồ và HUD: ưu tiên biển camera trước BMW, rồi biển VietMap Live (từ app Trình hỗ trợ VietMap Live trên điện thoại qua Wi-Fi xe, ghép đôi bằng mã 6 số), cuối cùng là giới hạn theo bản đồ BMW. Chớp khi xe chạy nhanh hơn biển. Trợ thủ vietmap-signs tự cài kèm; cần có Waze on cluster và cluster-render.",
-  "version": "0.7.1",
+  "description": "Hiện biển tốc độ (và biển --- 3 gạch ngang giống nguyên bản BMW khi không có biển) lên đồng hồ, Camera trước và HUD: ưu tiên biển camera trước BMW, rồi biển VietMap Live (từ app Trình hỗ trợ VietMap Live trên điện thoại qua Wi-Fi xe, ghép đôi bằng mã 6 số), cuối cùng là giới hạn theo bản đồ BMW (tự lọc bỏ biển 5 km/h hầm xe). Chớp khi xe chạy nhanh hơn biển. Trợ thủ vietmap-signs tự cài kèm; cần có cluster-render.",
+  "version": "0.8.0",
   "vendor": "custom",
   "loggingId": "OAA5",
   "iconGlyph": "flag",
@@ -71,6 +71,38 @@
         [
           "hud",
           "Chỉ HUD"
+        ]
+      ]
+    },
+    {
+      "key": "empty",
+      "label": "Khi không có biển",
+      "type": "choice",
+      "default": "dashes",
+      "options": [
+        [
+          "dashes",
+          "Hiện biển --- giống BMW"
+        ],
+        [
+          "hide",
+          "Ẩn biển"
+        ]
+      ]
+    },
+    {
+      "key": "frontcam",
+      "label": "Hiện biển trên Camera trước (Camera xi nhan)",
+      "type": "choice",
+      "default": "on",
+      "options": [
+        [
+          "on",
+          "Bật"
+        ],
+        [
+          "off",
+          "Tắt: chỉ trên bản đồ"
         ]
       ]
     },
@@ -155,6 +187,22 @@
         [
           "off",
           "Tắt"
+        ]
+      ]
+    },
+    {
+      "key": "minLimit",
+      "label": "Lọc biển tốc độ thấp trong hầm / nội bộ",
+      "type": "choice",
+      "default": "10",
+      "options": [
+        [
+          "10",
+          "Bỏ biển 5 km/h (chỉ từ 10 km/h)"
+        ],
+        [
+          "5",
+          "Hiện cả biển 5 km/h"
         ]
       ]
     },

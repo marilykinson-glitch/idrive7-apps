@@ -178,7 +178,7 @@ mgu.run({
         }, 1000);
 
         const render = async () => {
-            const want = { on: settings.get('mode') !== 'off', show: settings.get('show') };
+            const want = { on: settings.get('mode') !== 'off', show: settings.get('show'), empty: settings.get('empty') || 'dashes' };
             status = readStatus();
             if (drag && Date.now() - drag.at > 10000) drag = null;      // its finger's lift never came
             previewTick();

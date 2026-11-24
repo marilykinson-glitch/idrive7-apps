@@ -1,9 +1,9 @@
 {
   "id": "vietmap-cluster",
   "kind": "tool",
-  "version": "0.1.0",
-  "title": "VietMap on cluster helper",
-  "description": "Copies the centre screen (VietMap Live on Android Auto, or any app there) to the cluster's map area through Waze on cluster while the VietMap on cluster app is on; patches nothing, and off or removed leaves Waze on cluster as installed",
+  "version": "0.1.1",
+  "title": "Trợ thủ VietMap trên đồng hồ",
+  "description": "Chép màn hình giữa (VietMap Live trên Android Auto hoặc ứng dụng đang mở) sang vùng bản đồ đồng hồ và HUD qua Waze on cluster khi bật trong app VietMap trên đồng hồ; không sửa hệ thống, khi tắt hoặc gỡ sẽ trả Waze on cluster về nguyên trạng",
   "license": "MIT",
   "mguHmi": ["ID7"],
   "uninstallable": true,

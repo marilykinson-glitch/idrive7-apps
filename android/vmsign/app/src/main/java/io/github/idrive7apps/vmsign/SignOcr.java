@@ -47,7 +47,9 @@ final class SignOcr {
         List<Ring> out = new ArrayList<>();
         for (Rect box : rings(picture)) {
             if (out.size() >= 3) break;
-            String text = recognize(inside(picture, box));
+            Bitmap inner = inside(picture, box);
+            String text = recognize(inner);
+            inner.recycle();
             out.add(new Ring(box, number(text), text == null ? "" : text));
         }
         return out;
@@ -142,8 +144,10 @@ final class SignOcr {
         Bitmap crop = Bitmap.createBitmap(src, r.left, r.top, r.width(), r.height());
         int th = 160, tw = Math.max(8, Math.round(r.width() * (160f / r.height())));
         Bitmap big = Bitmap.createScaledBitmap(crop, tw, th, true);
+        if (big != crop) crop.recycle();
         int[] px = new int[tw * th];
         big.getPixels(px, 0, tw, 0, 0, tw, th);
+        big.recycle();
         for (int i = 0; i < px.length; i++) {
             int c = px[i];
             int luma = (((c >> 16) & 255) * 299 + ((c >> 8) & 255) * 587 + (c & 255) * 114) / 1000;
@@ -156,6 +160,7 @@ final class SignOcr {
         cv.drawColor(Color.WHITE);
         Bitmap ink = Bitmap.createBitmap(px, tw, th, Bitmap.Config.ARGB_8888);
         cv.drawBitmap(ink, m, m, null);
+        ink.recycle();
         return out;
     }
 

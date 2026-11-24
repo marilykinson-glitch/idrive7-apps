@@ -234,6 +234,8 @@ public class SignReaderService extends AccessibilityService {
      */
     private void shoot(List<int[]> vietmap) {
         long now = SystemClock.uptimeMillis();
+        // guard against ROMs (HyperOS / OneUI) that occasionally drop TakeScreenshotCallback altogether
+        if (shooting && now - shotAt > 5000) shooting = false;
         if (shooting || now - shotAt < 700 || Build.VERSION.SDK_INT < 30) {
             if (Build.VERSION.SDK_INT < 30) Engine.ocrNote = "Đọc hình biển cần Android 11 trở lên";
             return;
@@ -262,10 +264,12 @@ public class SignReaderService extends AccessibilityService {
     private TakeScreenshotCallback callback(final List<int[]> wins, final boolean windowOnly) {
         return new TakeScreenshotCallback() {
             @Override public void onSuccess(ScreenshotResult result) {
+                Bitmap pic = null;
                 try {
                     HardwareBuffer hb = result.getHardwareBuffer();
                     Bitmap hw = Bitmap.wrapHardwareBuffer(hb, result.getColorSpace());
-                    Bitmap pic = hw == null ? null : hw.copy(Bitmap.Config.ARGB_8888, false);
+                    pic = hw == null ? null : hw.copy(Bitmap.Config.ARGB_8888, false);
+                    if (hw != null) hw.recycle();
                     hb.close();
                     if (pic == null) { done(windowOnly, "ảnh rỗng"); return; }
                     StringBuilder sb = new StringBuilder();
@@ -278,15 +282,21 @@ public class SignReaderService extends AccessibilityService {
                         }
                         List<SignOcr.Ring> rings = SignOcr.read(part);
                         synchronized (shots) { shots.put(w[0] * 2 + (windowOnly ? 0 : 1), new Shot(SystemClock.uptimeMillis(), rings)); }
-                        if (windowOnly) Engine.windowShot = SignOcr.thumbnail(part); else Engine.screenShot = SignOcr.thumbnail(part);
+                        Bitmap prevShot = windowOnly ? Engine.windowShot : Engine.screenShot;
+                        Bitmap nextShot = SignOcr.thumbnail(part);
+                        if (windowOnly) Engine.windowShot = nextShot; else Engine.screenShot = nextShot;
+                        if (prevShot != null && prevShot != nextShot && prevShot != MainActivity.shownRef()) prevShot.recycle();
                         if (sb.length() > 0) sb.append(" · ");
                         sb.append("#").append(w[0]).append(' ').append(part.getWidth()).append('x').append(part.getHeight())
                                 .append(", ").append(SignOcr.stats(part)).append(": ").append(rings.size()).append(" vòng đỏ");
                         for (SignOcr.Ring r : rings) sb.append(r.number > 0 ? " [" + r.number + "]" : " [?" + r.text.replace('\n', ' ') + "]");
+                        if (part != pic) part.recycle();
                     }
                     done(windowOnly, sb.length() > 0 ? sb.toString() : "cửa sổ nằm ngoài màn hình");
                 } catch (RuntimeException e) {
                     done(windowOnly, "lỗi đọc hình: " + e.getMessage());
+                } finally {
+                    if (pic != null && !pic.isRecycled()) pic.recycle();
                 }
             }
 
