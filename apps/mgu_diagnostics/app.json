@@ -2,7 +2,7 @@
   "id": "mgu_diagnostics",
   "title": "MGU Diagnostics",
   "description": "Scan BMW control units, review vehicle messages, and save a report before clearing faults",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "vendor": "custom",
   "loggingId": "OA95",
   "iconGlyph": "engine",

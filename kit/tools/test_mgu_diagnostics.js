@@ -176,6 +176,8 @@ i18n.setLanguage('vi');
     assert(renderCount > countBefore, 'MGU status page must redraw every second in software mode');
     assert.notDeepStrictEqual(lastWords, wordsBefore, 'second hand and clock frame must advance');
     assert(drawnTexts.some((s) => /^14:05:1[12]$/.test(s)), 'digital clock second must tick forward');
+    assert(drawnTexts.some((s) => s === 'Dung lượng MGU'), 'MGU status page must show MGU storage row');
+    assert(drawnTexts.some((s) => /Trống \d/.test(s)), 'MGU status page must report total and free storage');
 
     // Verify GPU mode redraws sub-second for smooth second-hand sweep
     gpuSim = true;
@@ -204,9 +206,27 @@ i18n.setLanguage('vi');
     assert(/^2026-11-23T14:05:/.test(rep.vehicleTime), 'saved report must carry vehicle-synced timestamp');
     assert.strictEqual(DEMO.ecus.reduce((s, e) => s + e.dtcs.length, 0), origDemoCount, 'DEMO singleton must stay untouched');
 
+    // Clear faults (arm + confirm) and verify clear status stays on Faults tab, never bleeding to side tabs
+    await clicks.BTN_CLEAR();
+    await clicks.BTN_CLEAR();
+    drawnTexts.length = 0;
+    await clicks._tick();
+    assert(drawnTexts.some((s) => s.indexOf('Đã xóa') >= 0), 'Faults tab must show clear result right after clearing');
+
+    drawnTexts.length = 0;
+    clicks._tab(1); // Check Control tab
+    await clicks._tick();
+    assert(!drawnTexts.some((s) => s.indexOf('Đã xóa') >= 0), 'Check Control tab must not show Faults clear banner');
+    assert(drawnTexts.some((s) => s.indexOf('Lần quét gần nhất') >= 0), 'Check Control tab must show Last scan timestamp');
+
+    drawnTexts.length = 0;
+    clicks._tab(2); // Control units tab
+    await clicks._tick();
+    assert(!drawnTexts.some((s) => s.indexOf('Đã xóa') >= 0), 'Control units tab must not show Faults clear banner');
+
     fs.rmSync(stageParent, { recursive: true, force: true });
     fs.rmSync(path.join(ROOT, 'dist'), { recursive: true, force: true });
-    console.log('MGU Diagnostics checks passed (Node 8 syntax, vehicle clock sync, running second hand, i18n, reports).');
+    console.log('MGU Diagnostics checks passed (Node 8 syntax, vehicle clock sync, second hand, storage, tab-scoped status, i18n, reports).');
 })().catch((e) => {
     console.error(e);
     process.exit(1);

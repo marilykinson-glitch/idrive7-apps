@@ -18,6 +18,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const cp = require('child_process');
 const mgu = require('./kit/mgu');
 const { withAlpha } = require('./kit/canvas');
 const G = require('./kit/gauges');
@@ -240,6 +241,38 @@ function whyText(why) {
     return String(why.text || why);
 }
 
+function ecuShortByLang(a, lang) {
+    const isVi = lang === 'vi';
+    const v = variant(a), id = v && v.toUpperCase();
+    if (id) {
+        const family = ECU_SHORT_FAMILIES.find((x) => id.startsWith(x));
+        if (family) {
+            if (family === 'SRR') {
+                const pos = { '_VR': 'trước phải', '_VL': 'trước trái', '_HR': 'sau phải', '_HL': 'sau trái' };
+                const suffix = Object.keys(pos).find((x) => id.endsWith(x));
+                if (suffix) return isVi ? 'Radar ' + pos[suffix] : 'Radar ' + suffix.slice(1);
+            }
+            if ((family === 'FLM' || family === 'FLE') && (id.endsWith('_L') || id.endsWith('_R')))
+                return isVi ? 'Đèn trước ' + (id.endsWith('_L') ? 'trái' : 'phải') : 'Headlight ' + (id.endsWith('_L') ? 'left' : 'right');
+            return ECU_SHORT[family][isVi ? 0 : 1];
+        }
+        return (isVi ? 'Hộp BMW ' : 'BMW ECU ') + id.slice(0, 14);
+    }
+    const addressName = ECU_ADDR_SHORT[a];
+    if (addressName) return addressName[isVi ? 0 : 1];
+    const known = ECU[a];
+    if (known) return isVi ? translateUI(known) : known;
+    return (isVi ? 'Hộp ' : 'ECU ') + '0x' + hex(a);
+}
+
+function fmtBytes(bytes) {
+    if (!(bytes >= 0) || !isFinite(bytes)) return '--';
+    const gb = bytes / 1073741824;
+    if (gb >= 100) return Math.round(gb) + ' GB';
+    if (gb >= 1) return gb.toFixed(1) + ' GB';
+    return Math.round(bytes / 1048576) + ' MB';
+}
+
 function classifyIface(name) {
     const s = String(name || '').toLowerCase();
     if (/tun|tap|wg|tailscale|utun/.test(s)) return 'VPN';
@@ -261,11 +294,32 @@ mgu.run({
         let scan = loadSavedScan();   // { at, demo, ecus: [{ addr, dtcs: [{code,status,mem}], nrc }] }
         const IDS = path.join(ctx.dataDir, 'ecu_ids.json');
         ids = readJson(IDS);
-        let phase = 'idle', msg = null, replies = 0, busy = false, version = 0, demoCleared = false;
-        const setMsg = (en, vi, crit) => { msg = en ? { en, vi: vi || en, crit: !!crit } : null; };
-        const curMsg = () => (!msg ? '' : typeof msg === 'string' ? translateUI(msg) : uiPair(msg.en, msg.vi));
-        const isMsgCrit = () => phase === 'error' || !!(msg && msg.crit);
+        let phase = 'idle', msg = null, msgTimer = null, replies = 0, busy = false, version = 0, demoCleared = false;
         const changed = () => { version++; loop && loop.kick(); };
+        const setMsg = (en, vi, opts) => {
+            if (msgTimer) { clearTimeout(msgTimer); msgTimer = null; }
+            if (!en) { msg = null; return; }
+            const o = typeof opts === 'boolean' ? { crit: opts } : (opts || {});
+            msg = {
+                en,
+                vi: vi || en,
+                crit: !!o.crit,
+                scope: o.scope || 'faults', // 'faults': Faults tab only; 'page': only on msg.page
+                page: o.page,
+                transient: !!o.transient,
+            };
+            if (o.ttlMs) {
+                msgTimer = setTimeout(() => { msgTimer = null; msg = null; changed(); }, o.ttlMs);
+            }
+        };
+        const curMsgFor = (isFaultsPage, curPage) => {
+            if (!msg) return '';
+            const txt = typeof msg === 'string' ? translateUI(msg) : uiPair(msg.en, msg.vi);
+            if (phase === 'scanning' || phase === 'clearing') return txt;
+            if (msg.scope === 'page') return msg.page === curPage ? txt : '';
+            return isFaultsPage ? txt : '';
+        };
+        const isMsgCrit = () => phase === 'error' || !!(msg && msg.crit);
         const useDemo = () => settings.get('demo') === 'on' || (settings.get('demo') === 'auto' && !diag.available);
 
         /* ---------- live vehicle clock & passive car vitals ---------- */
@@ -427,15 +481,134 @@ mgu.run({
 
         /* ---------- hardware & OS sampler (1 Hz max) ---------- */
         const sys = {
-            sampledAt: 0, gpsCheckedAt: 0, prevCpu: null,
+            sampledAt: 0, gpsCheckedAt: 0, diskCheckedAt: 0, diskBusy: false, prevCpu: null,
             cpuPct: null, cpuHist: [], cpuCores: 0, load1: null,
             memUsedMB: 0, memTotalMB: 0, ramPct: 0,
+            diskTotalBytes: null, diskFreeBytes: null, diskUsedPct: 0,
             oapUsedMB: null, oapCapMB: null, rssMB: 0, swapMB: null,
             gpuMHz: null, socTempC: null, upSec: 0,
             osLabel: '', activeIf: [], reports: 0, reportBytes: 0,
         };
         const safeOs = (fn, fallback) => { try { return fn ? fn() : fallback; } catch (e) { return fallback; } };
         const readNumFile = (f) => { try { const n = Number(fs.readFileSync(f, 'utf8').trim()); return Number.isFinite(n) ? n : null; } catch (e) { return null; } };
+        const DF_BIN = fs.existsSync('/bin/df') ? '/bin/df' : fs.existsSync('/usr/bin/df') ? '/usr/bin/df' : 'df';
+
+        function readInternalDiskBytes() {
+            let sum = 0;
+            try {
+                fs.readdirSync('/sys/block').forEach((b) => {
+                    if (!/^(mmcblk\d+|nvme\d+n\d+|sd[a-z]+|vd[a-z]+)$/.test(b)) return;
+                    if (readNumFile('/sys/block/' + b + '/removable') === 1) return;
+                    const sectors = readNumFile('/sys/block/' + b + '/size');
+                    if (sectors !== null && sectors * 512 >= 512 * 1048576) sum += sectors * 512;
+                });
+            } catch (e) { /* non-Linux */ }
+            return sum > 0 ? sum : null;
+        }
+
+        function parseDfOutput(stdout, platform) {
+            const removable = [];
+            try {
+                fs.readdirSync('/sys/block').forEach((b) => {
+                    if (readNumFile('/sys/block/' + b + '/removable') === 1) removable.push('/dev/' + b);
+                });
+            } catch (e) { /* ignore */ }
+            let mountsText = '';
+            try { mountsText = fs.readFileSync('/proc/mounts', 'utf8'); } catch (e) { /* non-Linux */ }
+            const devRw = Object.create(null), mntRw = Object.create(null);
+            if (mountsText) {
+                mountsText.split('\n').forEach((line) => {
+                    const p = line.trim().split(/\s+/);
+                    if (p.length < 4) return;
+                    const opts = p[3].split(',');
+                    const rw = opts.indexOf('rw') >= 0 && opts.indexOf('ro') < 0;
+                    mntRw[p[1]] = rw;
+                    if (rw) devRw[p[0]] = true;
+                });
+            }
+            const rows = [];
+            String(stdout || '').split('\n').slice(1).forEach((line) => {
+                const m = /^(\S+)\s+(\d+)\s+(\d+)\s+(\d+)\s+\S+\s+(.+)$/.exec(line.trim());
+                if (!m) return;
+                const dev = m[1], totalK = Number(m[2]), usedK = Number(m[3]), availK = Number(m[4]), mnt = m[5].trim();
+                if (!/^\/dev\//.test(dev) || /^\/dev\/(loop|ram|zram|fd|sr)/.test(dev) || !(totalK > 0)) return;
+                if (removable.some((pfx) => dev.indexOf(pfx) === 0)) return;
+                rows.push({ dev, totalK, usedK, availK, mnt });
+            });
+            if (!rows.length) return null;
+            if (platform === 'darwin') {
+                const pick = rows.find((r) => r.mnt === '/System/Volumes/Data') || rows.find((r) => r.mnt === '/') || rows[0];
+                return { totalBytes: pick.totalK * 1024, freeBytes: pick.availK * 1024 };
+            }
+            const byDev = new Map();
+            rows.forEach((r) => {
+                const isRw = !mountsText ? true : !!(devRw[r.dev] || mntRw[r.mnt]);
+                const prev = byDev.get(r.dev);
+                if (!prev || (!prev.isRw && isRw)) byDev.set(r.dev, { totalK: r.totalK, usedK: r.usedK, availK: r.availK, isRw });
+            });
+            const rootEntry = byDev.get('/dev/root');
+            if (rootEntry && byDev.size > 1) {
+                Array.from(byDev.keys()).some((k) => {
+                    if (k === '/dev/root') return false;
+                    const v = byDev.get(k);
+                    if (v.totalK === rootEntry.totalK && v.usedK === rootEntry.usedK) {
+                        if (v.isRw) rootEntry.isRw = true;
+                        byDev.delete(k);
+                        return true;
+                    }
+                    return false;
+                });
+            }
+            let totalK = 0, freeK = 0;
+            byDev.forEach((v) => {
+                totalK += v.totalK;
+                if (v.isRw) freeK += v.availK;
+            });
+            const hwBytes = readInternalDiskBytes();
+            const mountedBytes = totalK * 1024, freeBytes = freeK * 1024;
+            const totalBytes = hwBytes !== null && hwBytes > mountedBytes ? hwBytes : mountedBytes;
+            return totalBytes > 0 ? { totalBytes, freeBytes: Math.min(totalBytes, freeBytes) } : null;
+        }
+
+        function applyDiskStats(info) {
+            if (!info || !(info.totalBytes > 0)) return;
+            const pct = G.clamp(Math.round((info.totalBytes - info.freeBytes) * 100 / info.totalBytes), 0, 100);
+            const diff = sys.diskTotalBytes !== info.totalBytes || sys.diskFreeBytes !== info.freeBytes;
+            sys.diskTotalBytes = info.totalBytes;
+            sys.diskFreeBytes = info.freeBytes;
+            sys.diskUsedPct = pct;
+            if (diff) changed();
+        }
+
+        function refreshStorage(nowMs) {
+            if (sys.diskBusy || (sys.diskCheckedAt && nowMs - sys.diskCheckedAt < 15000)) return;
+            sys.diskCheckedAt = nowMs;
+            sys.diskBusy = true;
+            const pf = safeOs(os.platform, '');
+            const finishFallback = () => {
+                try {
+                    cp.execFile(DF_BIN, ['-kP', ctx.dataDir], { timeout: 2000 }, (e2, out2) => {
+                        sys.diskBusy = false;
+                        const parsed = parseDfOutput(out2, pf);
+                        if (parsed) applyDiskStats(parsed);
+                    });
+                } catch (e) { sys.diskBusy = false; }
+            };
+            try {
+                cp.execFile(DF_BIN, ['-kP'], { timeout: 2500 }, (err, stdout) => {
+                    // Parse stdout even on exit code 1 (df exits 1 on Linux when one unrelated mount is 0700)
+                    const parsed = parseDfOutput(stdout, pf);
+                    if (parsed) {
+                        sys.diskBusy = false;
+                        applyDiskStats(parsed);
+                    } else {
+                        finishFallback();
+                    }
+                });
+            } catch (e) {
+                sys.diskBusy = false;
+            }
+        }
 
         function readCpuTicks() {
             try {
@@ -537,6 +710,9 @@ mgu.run({
             } catch (e) { /* ignore */ }
             sys.reports = reports;
             sys.reportBytes = reportBytes;
+
+            // Storage capacity & free space (refreshed asynchronously every 15 s)
+            refreshStorage(nowMs);
 
             // Optional gps-timesync daemon status (every 5 s)
             if (nowMs - sys.gpsCheckedAt >= 5000) {
@@ -766,14 +942,25 @@ mgu.run({
             if (backAddrs.length) log.info('faults back at once after the clear: ' + backAddrs.map((a) => ecuName(a, 'en')).join(', '));
             if (!msg) {
                 if (failed.length) {
-                    const enList = failed.map((f) => ecuName(f.addr, 'en') + ': ' + whyText(f.why)).join(';  ');
-                    const viList = failed.map((f) => ecuName(f.addr, 'vi') + ': ' + whyText(f.why)).join(';  ');
-                    setMsg('Not cleared - ' + enList, 'Không xóa được — ' + viList, true);
+                    const shownFail = failed.slice(0, 2);
+                    const moreFail = failed.length > 2 ? ' (+' + (failed.length - 2) + ')' : '';
+                    const enList = shownFail.map((f) => ecuShortByLang(f.addr, 'en') + ': ' + whyText(f.why)).join('; ') + moreFail;
+                    const viList = shownFail.map((f) => ecuShortByLang(f.addr, 'vi') + ': ' + whyText(f.why)).join('; ') + moreFail;
+                    setMsg('Not cleared - ' + enList, 'Không xóa được — ' + viList, { crit: true, scope: 'faults', transient: true, ttlMs: 12000 });
                 } else if (backAddrs.length) {
-                    setMsg('Cleared; back at once (still present): ' + backAddrs.map((a) => ecuName(a, 'en')).join(', '),
-                        'Đã xóa nhưng lỗi xuất hiện lại ngay (nguyên nhân vẫn còn): ' + backAddrs.map((a) => ecuName(a, 'vi')).join(', '));
+                    const shownBack = backAddrs.slice(0, 3);
+                    const moreCnt = backAddrs.length - shownBack.length;
+                    const enNames = shownBack.map((a) => ecuShortByLang(a, 'en')).join(', ') + (moreCnt > 0 ? ' +' + moreCnt : '');
+                    const viNames = shownBack.map((a) => ecuShortByLang(a, 'vi')).join(', ') + (moreCnt > 0 ? ' +' + moreCnt : '');
+                    const enMsg = backAddrs.length > 3
+                        ? 'Cleared · Active faults remain on ' + backAddrs.length + ' units (' + enNames + ')'
+                        : 'Cleared · Active faults remain: ' + enNames;
+                    const viMsg = backAddrs.length > 3
+                        ? 'Đã xóa · Còn lỗi hiện hữu ở ' + backAddrs.length + ' hộp (' + viNames + ')'
+                        : 'Đã xóa · Còn lỗi hiện hữu: ' + viNames;
+                    setMsg(enMsg, viMsg, { scope: 'faults', transient: true, ttlMs: 12000 });
                 } else {
-                    setMsg(doneEn, doneVi);
+                    setMsg(doneEn, doneVi, { scope: 'faults', transient: true, ttlMs: 10000 });
                 }
             }
             changed();
@@ -874,11 +1061,11 @@ mgu.run({
             tile(cv, t, 3, 'Check Control', String(c), plural(c, 'messages', 'messages'), c ? t.warn : GO);
         }
 
-        function listPanel(cv, t, title, buttons) {
+        function listPanel(cv, t, title, buttons, isFaultsPage) {
             const p = G.panel(cv, t, 24, 176, 1552, 336, title);
             let bx = 42 + cv.textWidth(String(title), 26, { font: 'bold' }) + 28;
             (buttons || []).forEach((b) => { bx += G.button(cv, t, bx, 189, 0, 40, b.label, b.run, b) + 12; });
-            let right = curMsg();
+            let right = curMsgFor(!!isFaultsPage, page);
             if (!right && scan) right = uiPair('Last scan ', 'Lần quét gần nhất ') + when(scan.at);
             if (phase === 'scanning' || phase === 'clearing') {
                 const w = 300, x = 1552 - w, f = ((Date.now() / 1200) % 1);
@@ -917,7 +1104,7 @@ mgu.run({
                 { label: phase === 'scanning' ? 'Scanning...' : scan ? 'Scan again' : 'Scan now', run: () => doScan(), key: 'scan', busy: isBusy },
                 { label: clearArmed ? 'Yes, clear' : 'Clear all', run: () => doClear(), key: 'clear', busy: isBusy || !faults().length, color: clearArmed ? t.crit : null },
                 only !== null && { label: 'All units', run: () => showOnly(null), key: 'all' },
-            ].filter(Boolean));
+            ].filter(Boolean), true);
             const mid = Math.round((p.y + p.h - G.BOTTOM) / 2);
             if (!scan) {
                 cv.text(phase === 'scanning' ? 'Scanning...' : 'Press "Scan now" (ignition on)', 800, 369 + mid, 32, t.dim, { align: 'center' });
@@ -1122,14 +1309,14 @@ mgu.run({
                 : uiPair('SOFTWARE', 'PHẦN MỀM');
             litText(cv, rendTxt, 1026, 82, 17, gpuActive ? GO : t.dim, { align: 'right', font: 'bold' });
 
-            // CPU load + sparkline
+            // 1. CPU load + sparkline
             const cpuVal = sys.cpuPct !== null ? Math.round(sys.cpuPct) : null;
             const cpuCol = cpuVal === null ? t.dim : cpuVal >= 85 ? t.crit : cpuVal >= 65 ? t.warn : GO;
             const coreInfo = (sys.cpuCores ? sys.cpuCores + ' ' + uiPair('cores', 'lõi') : 'CPU') +
                 (sys.load1 !== null ? ' · ' + uiPair('load ', 'tải ') + sys.load1.toFixed(2) : '');
-            litText(cv, uiPair('CPU · ', 'Vi xử lý · ') + coreInfo, 546, 117, 17, t.dim);
+            litText(cv, uiPair('CPU · ', 'Vi xử lý · ') + coreInfo, 546, 112, 17, t.dim);
             if (sys.cpuHist.length >= 2) {
-                const sx0 = 852, sw = 92, sy1 = 120, sh = 22;
+                const sx0 = 852, sw = 92, sy1 = 114, sh = 19;
                 const pts = sys.cpuHist.map((v, idx) => [
                     sx0 + (idx / Math.max(1, sys.cpuHist.length - 1)) * sw,
                     sy1 - G.clamp(v, 0, 100) / 100 * sh,
@@ -1137,19 +1324,31 @@ mgu.run({
                 cv.fillUnder(pts, sy1, withAlpha(cpuCol, 0.18));
                 cv.polyline(pts, 2, withAlpha(cpuCol, 0.9));
             }
-            litText(cv, cpuVal !== null ? cpuVal + '%' : '--', 1026, 118, 23, cpuVal !== null ? cpuCol : t.dim, { align: 'right', font: 'bold' });
-            miniBar(cv, t, 546, 126, 480, 7, cpuVal || 0, cpuCol);
+            litText(cv, cpuVal !== null ? cpuVal + '%' : '--', 1026, 112, 21, cpuVal !== null ? cpuCol : t.dim, { align: 'right', font: 'bold' });
+            miniBar(cv, t, 546, 119, 480, 6, cpuVal || 0, cpuCol);
 
-            // System RAM
+            // 2. System RAM
             const ramCol = sys.ramPct >= 88 ? t.crit : sys.ramPct >= 75 ? t.warn : t.accent;
-            litText(cv, uiPair('System RAM', 'Bộ nhớ RAM'), 546, 161, 17, t.dim);
+            litText(cv, uiPair('System RAM', 'Bộ nhớ RAM'), 546, 149, 17, t.dim);
             const ramTxt = sys.memTotalMB > 0
                 ? Math.round(sys.memUsedMB) + ' / ' + Math.round(sys.memTotalMB) + ' MB (' + sys.ramPct + '%)'
                 : uiPair('Unavailable', 'Không có dữ liệu');
-            litText(cv, ramTxt, 1026, 161, 19, t.text, { align: 'right', font: 'bold' });
-            miniBar(cv, t, 546, 170, 480, 7, sys.ramPct, ramCol);
+            litText(cv, ramTxt, 1026, 149, 18, t.text, { align: 'right', font: 'bold' });
+            miniBar(cv, t, 546, 156, 480, 6, sys.ramPct, ramCol);
 
-            // OAP pool / Process RSS & SoC temp / Swap
+            // 3. MGU Storage (total capacity & free space)
+            const hasDisk = sys.diskTotalBytes !== null && sys.diskFreeBytes !== null;
+            const freeGB = hasDisk ? sys.diskFreeBytes / 1073741824 : null;
+            const diskCol = !hasDisk ? t.dim : (sys.diskUsedPct >= 92 || freeGB < 1) ? t.crit : (sys.diskUsedPct >= 80 || freeGB < 3) ? t.warn : GO;
+            litText(cv, uiPair('MGU storage', 'Dung lượng MGU'), 546, 186, 17, t.dim);
+            const diskTxt = hasDisk
+                ? uiPair(fmtBytes(sys.diskTotalBytes) + ' · ' + fmtBytes(sys.diskFreeBytes) + ' free',
+                    fmtBytes(sys.diskTotalBytes) + ' · Trống ' + fmtBytes(sys.diskFreeBytes))
+                : uiPair('Checking...', 'Đang đọc...');
+            litText(cv, diskTxt, 1026, 186, 18, hasDisk ? diskCol : t.dim, { align: 'right', font: 'bold' });
+            miniBar(cv, t, 546, 193, 480, 6, hasDisk ? sys.diskUsedPct : 0, diskCol);
+
+            // 4. OAP pool / Process RSS & SoC temp / Swap
             const hasCgroup = sys.oapUsedMB !== null && sys.oapCapMB !== null;
             const oapLabel = hasCgroup ? uiPair('OAP apps pool', 'Vùng nhớ OAP') : uiPair('App RSS memory', 'Bộ nhớ tiến trình');
             const oapVal = hasCgroup
@@ -1157,21 +1356,16 @@ mgu.run({
                 : sys.rssMB + ' MB RSS';
             const extraHw = sys.socTempC !== null ? 'SoC ' + sys.socTempC + ' °C'
                 : sys.swapMB !== null ? 'Swap ' + Math.round(sys.swapMB) + ' MB' : '';
-            litText(cv, oapLabel, 546, 206, 17, t.dim);
-            litText(cv, oapVal + (extraHw ? '  ·  ' + extraHw : ''), 1026, 206, 18, t.text, { align: 'right', font: 'bold' });
-            if (hasCgroup) {
-                const oapPct = Math.round(sys.oapUsedMB * 100 / sys.oapCapMB);
-                miniBar(cv, t, 546, 215, 480, 6, oapPct, oapPct >= 85 ? t.warn : GO);
-            } else {
-                cv.fillRect(546, 224, 480, 1, withAlpha(t.tick, 0.22));
-            }
+            litText(cv, oapLabel, 546, 224, 17, t.dim);
+            litText(cv, oapVal + (extraHw ? '  ·  ' + extraHw : ''), 1026, 224, 17, t.text, { align: 'right', font: 'bold' });
+            cv.fillRect(546, 238, 480, 1, withAlpha(t.tick, 0.22));
 
-            // Live ticking uptime
+            // 5. Live ticking uptime
             const upD = Math.floor(sys.upSec / 86400), upH = Math.floor((sys.upSec % 86400) / 3600);
             const upM = Math.floor((sys.upSec % 3600) / 60), upS = sys.upSec % 60;
             const upStr = (upD > 0 ? upD + uiPair('d ', ' ngày ') : '') + pad2(upH) + ':' + pad2(upM) + ':' + pad2(upS);
-            litText(cv, uiPair('MGU uptime', 'Thời gian MGU chạy'), 546, 264, 18, t.dim);
-            litText(cv, upStr, 1026, 264, 22, t.accent, { align: 'right', font: 'bold' });
+            litText(cv, uiPair('MGU uptime', 'Thời gian MGU chạy'), 546, 265, 17, t.dim);
+            litText(cv, upStr, 1026, 265, 21, t.accent, { align: 'right', font: 'bold' });
 
             /* ---- 3. Right-Top Panel: Vehicle Link & Bus Vitals ---- */
             G.panel(cv, t, 1060, 44, 516, 244, 'Vehicle link & vitals');
@@ -1310,14 +1504,14 @@ mgu.run({
             try {
                 const f = writeReport(uiPair('User saved report', 'Người dùng lưu báo cáo'));
                 if (f) {
-                    setMsg('Diagnostic report saved', 'Đã lưu báo cáo chẩn đoán');
+                    setMsg('Diagnostic report saved', 'Đã lưu báo cáo chẩn đoán', { scope: 'page', page, transient: true, ttlMs: 5000 });
                     log.info('report saved: ' + f);
                 } else {
-                    setMsg('Scan the vehicle before saving a report', 'Hãy quét xe trước khi lưu báo cáo');
+                    setMsg('Scan the vehicle before saving a report', 'Hãy quét xe trước khi lưu báo cáo', { scope: 'page', page, transient: true, ttlMs: 5000 });
                 }
             } catch (e) {
                 const detail = e && e.message ? e.message : String(e);
-                setMsg('Could not save report: ' + detail, 'Không lưu được báo cáo: ' + detail, true);
+                setMsg('Could not save report: ' + detail, 'Không lưu được báo cáo: ' + detail, { crit: true, scope: 'page', page, transient: true, ttlMs: 6000 });
                 log.warn('report: ' + e);
             }
             changed();
@@ -1325,12 +1519,19 @@ mgu.run({
         ctx.hideButton('BTN_SCAN');
         ctx.hideButton('BTN_CLEAR');
         ctx.onLayout(changed);
-        ui.onClick('BTN_PAGE', () => { page = (page + 1) % pageCount(); changed(); });
+        const onSwitchPage = (nextPage) => {
+            if (nextPage !== page && phase !== 'scanning' && phase !== 'clearing') {
+                disarmClear();
+                if (msg && msg.transient) setMsg(null);
+            }
+            page = nextPage;
+            changed();
+        };
+        ui.onClick('BTN_PAGE', () => onSwitchPage((page + 1) % pageCount()));
         ctx.onTab((i) => {
             const fp = pageCount() - 3;
-            if (i === 0 && page < fp) page = (page + 1) % fp;
-            else page = i === 0 ? 0 : fp + i - 1;
-            changed();
+            const nextPage = i === 0 && page < fp ? (page + 1) % fp : i === 0 ? 0 : fp + i - 1;
+            onSwitchPage(nextPage);
         });
 
         // 4 fps in software fallback ensures 1-second clock transitions land promptly (<250 ms jitter);
