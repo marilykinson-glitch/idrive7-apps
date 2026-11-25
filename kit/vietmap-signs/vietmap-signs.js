@@ -53,7 +53,7 @@ const cp = require('child_process');
 const dgram = require('dgram');
 const zlib = require('zlib');
 
-const VERSION = '0.8.0';
+const VERSION = '0.8.1';
 const env = (k, d) => (process.env[k] !== undefined && process.env[k] !== '' ? process.env[k] : d);
 const CFG = {
     oap: env('VMS_OAP', '/var/opt/public/oap'),
@@ -67,6 +67,7 @@ const CFG = {
     nft: env('VMS_NFT', 'nft'),
     wocRun: env('VMS_WOC_RUN', '/run/waze-on-cluster'),
     xcRun: env('VMS_XC_RUN', '/run/xinhan-cam'),
+    vmcRun: env('VMS_VMC_RUN', '/run/vietmap-cluster'),
     crClient: env('VMS_CR_CLIENT', '/var/opt/cluster-render/current/cluster_render_client.js'),
     crSocket: env('VMS_CR_SOCKET', ''),
     pollMs: Number(env('VMS_POLL_MS', 500)),
@@ -569,9 +570,10 @@ function wocStatus(now) {
     const ox = isFinite(Number(s.hud_x)) ? Number(s.hud_x) : 0, oy = isFinite(Number(s.hud_y)) ? Number(s.hud_y) : 0;
     const bx = Math.max(0, Math.min(HUD_W - bw, Math.floor((HUD_W - bw) / 2) + ox));
     const by = Math.max(0, Math.min(HUD_H - bh, Math.floor((HUD_H - bh) / 2) + oy));
+    const suspended = s.state === 'starting' && s.reason === 'under an alert on the cluster';
     return {
         known: true, fresh, state: s.state || null, reason: s.reason || null,
-        map: fresh && s.state === 'showing' && s.target !== 'hud' && Number(s.cluster) !== 0,
+        map: fresh && (s.state === 'showing' || suspended) && s.target !== 'hud' && Number(s.cluster) !== 0,
         hud: fresh && Number(s.hud) === 1 && s.hud_state === 'showing',
         guideHold: Number(s.hide_bmw_guidance) === 0 ? 0 : 1,
         hudBox: { x: bx, y: by, w: bw, h: bh },
@@ -586,7 +588,7 @@ function xcStatus(now) {
     const at = Date.parse(s.at) || mtime(f);
     const fresh = now - at < CFG.xcStaleMs && now >= at - 5000;
     const n = s.native && typeof s.native === 'object' ? s.native : null;
-    const front = !!(fresh && n && Number(n.shown) === 1 && (n.view === 'front' || s.view === 'front'));
+    const front = !!(fresh && n && Number(n.shown) === 1 && n.view === 'front' && (!n.layer || n.layer === 'shown'));
     const target = front ? (n.target === 'panel' ? 'panel' : 'map') : null;
     const box = front && Number(n.layer_w) > 0 && Number(n.layer_h) > 0
         ? { x: Number(n.layer_x) || 0, y: Number(n.layer_y) || 0, w: Number(n.layer_w), h: Number(n.layer_h) } : null;
@@ -726,6 +728,7 @@ function applyLayers(want) {
         if (!w) return;
         let L = layers[t];
         if (!w.visible || !want.symbol) {
+            if (t === 'panel' && L) { cr.drop(L.ref); delete layers.panel; delete renderer.layers.panel; return; }
             if (L && L.visible) { cr.set(L.ref, { visible: false, opacity: 1 }); L.visible = false; }
             return;
         }
@@ -855,8 +858,11 @@ function decide(now) {
     const placing = preview(now);
     // BMW's front camera's sign first, then the phone's (VietMap), then the centre screen's, then BMW's map
     const camLimit = d.on && d.camera ? camera.current(cam, now, log) : 0;
-    // the centre screen is read while neither the camera nor the phone has a sign and the sign could show
-    const reading = d.on && d.screen && !camLimit && !fresh && !placing && (clusterSurface || woc.hud) && renderer.installed !== false
+    // the centre screen is read while neither the camera nor the phone has a sign, vietmap-cluster is not
+    // already streaming the centre screen, and the sign could show
+    const vmc = d.screen ? readJson(path.join(CFG.vmcRun, 'status.json')) : null;
+    const vmcGrabbing = !!(vmc && vmc.grabber && vmc.grabber.running);
+    const reading = d.on && d.screen && !vmcGrabbing && !camLimit && !fresh && !placing && (clusterSurface || woc.hud) && renderer.installed !== false
         && (fs.existsSync(CFG.grabber) || !path.isAbsolute(CFG.grabber));
     if (reading && !screen.running && now - screen.startedAt >= CFG.screenMs) shootScreen(now);
     const onScreen = reading ? screenSign(now) : 0;
@@ -871,11 +877,12 @@ function decide(now) {
     const speed = carSpeed(now);
     const over = !!limit && !placing && d.warn !== null && speed !== null && speed > limit + d.warn;
     const onPanel = frontOn && xc.target === 'panel';
-    const map = Object.assign({ visible: showOk && wantMap && clusterSurface && !onPanel, guide: woc.map && woc.guideHold === 0 ? 0 : 1 }, g.map);
+    const guideHold = woc.known && woc.guideHold === 0 ? 0 : 1;
+    const map = Object.assign({ visible: showOk && wantMap && clusterSurface && !onPanel, guide: guideHold }, g.map);
     const panel = { visible: showOk && wantMap && onPanel, guide: 1, size: g.map.size,
         x: Math.max(0, Math.min(PANEL_W - g.map.size, PANEL_MAP_X + g.map.x)),
         y: Math.max(0, Math.min(PANEL_H - g.map.size, PANEL_MAP_Y + g.map.y)) };
-    const hud = Object.assign({ visible: showOk && wantHud && woc.hud, guide: woc.guideHold === 0 ? 0 : 1 }, g.hud);
+    const hud = Object.assign({ visible: showOk && wantHud && woc.hud, guide: guideHold }, g.hud);
     let why = '';
     if (!d.on) why = 'off in the app';
     else if (placing && !limit) why = '';

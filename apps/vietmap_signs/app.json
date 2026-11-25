@@ -2,7 +2,7 @@
   "id": "vietmap_signs",
   "title": "Biển báo VietMap",
   "description": "Hiện biển tốc độ (và biển --- 3 gạch ngang giống nguyên bản BMW khi không có biển) lên đồng hồ, Camera trước và HUD: ưu tiên biển camera trước BMW, rồi biển VietMap Live (từ app Trình hỗ trợ VietMap Live trên điện thoại qua Wi-Fi xe, ghép đôi bằng mã 6 số), cuối cùng là giới hạn theo bản đồ BMW (tự lọc bỏ biển 5 km/h hầm xe). Chớp khi xe chạy nhanh hơn biển. Trợ thủ vietmap-signs tự cài kèm; cần có cluster-render.",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "vendor": "custom",
   "loggingId": "OAA5",
   "iconGlyph": "flag",

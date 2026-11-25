@@ -320,7 +320,17 @@ function sendNoAnswer(msg) {
     app.settings({ frontcam: 'off' });
     s = vms.tick();
     assert.deepStrictEqual(vms._last().shown, [], 'frontcam off: hidden when Waze is idle');
+    assert(calls('drop').some((c) => c[1] === 4 || c[1] === 5), 'unused panel layer dropped immediately');
+    // while xinhan-cam is still showing left mirror camera on panel (even if sentView just said front), panel is NOT mistaken for front camera
+    app.settings({});
+    xc({ view: 'front', native: { shown: 1, view: 'left', target: 'panel', layer: 'shown', layer_w: 320, layer_h: 320, layer_x: 220, layer_y: 240 } });
+    assert.strictEqual(vms.xcStatus(Date.now()).front, false, 'mirror camera on panel is never treated as front camera');
+    xc({ view: 'front', native: { shown: 1, view: 'front', target: 'map', layer: 'refused', layer_w: 640, layer_h: 288 } });
+    assert.strictEqual(vms.xcStatus(Date.now()).front, false, 'refused front layer is not treated as shown');
+    // Waze suspended under an exclusive overlay stays counted as map surface so no 1 s blink occurs when front camera hides
+    woc({ state: 'starting', reason: 'under an alert on the cluster', cluster: 1, hud: 0, hud_state: 'idle' });
     xc({ view: 'none', native: { shown: 0, view: 'none', target: 'map' } });
+    assert.strictEqual(vms.wocStatus(Date.now()).map, true, 'suspended Waze map stays seamless during overlay hand-off');
     app.settings({});
 
     // --- the centre screen (CarPlay): the sign read in BMW's grabber's picture ---

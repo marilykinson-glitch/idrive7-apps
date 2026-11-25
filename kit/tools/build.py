@@ -300,14 +300,17 @@ def build_ui(spec, language='en'):
 
 
 def manifest_for(spec):
-    proxies = dict(PLATFORM_PROXIES)
-    for iface, fields in spec.get('signals', {}).items():
-        inst = fields.pop('_instances', '1') if isinstance(fields, dict) else '1'
-        entry = {'instances': inst}
-        if isinstance(fields, dict):
-            attrs = {k: v for k, v in fields.items() if not k.startswith('_')}
-            meths = fields.get('_methods')
-            evts = fields.get('_broadcasts')
+    proxies = {k: (dict(v, **{sk: (dict(sv) if isinstance(sv, dict) else list(sv) if isinstance(sv, list) else sv) for sk, sv in v.items()}) if isinstance(v, dict) else v) for k, v in PLATFORM_PROXIES.items()}
+    for iface, raw_fields in spec.get('signals', {}).items():
+        if isinstance(raw_fields, dict):
+            fields = dict(raw_fields)
+            base = proxies.get(iface) if isinstance(proxies.get(iface), dict) else {}
+            inst = fields.pop('_instances', base.get('instances', '1'))
+            entry = {'instances': inst}
+            attrs = dict(base.get('attributes') or {})
+            attrs.update({k: v for k, v in fields.items() if not k.startswith('_')})
+            meths = list(dict.fromkeys(list(base.get('methods') or []) + list(fields.get('_methods') or [])))
+            evts = list(dict.fromkeys(list(base.get('broadcasts') or []) + list(fields.get('_broadcasts') or [])))
             if attrs: entry['attributes'] = attrs
             if meths: entry['methods'] = meths
             if evts: entry['broadcasts'] = evts
