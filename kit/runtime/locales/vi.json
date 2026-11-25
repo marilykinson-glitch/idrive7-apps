@@ -547,5 +547,18 @@
   "MGU hardware": "Phần cứng MGU",
   "Vehicle link & vitals": "Kết nối & Điện xe",
   "Diagnostic summary": "Tổng kết chẩn đoán",
-  "Network interfaces": "Giao diện mạng MGU"
+  "Network interfaces": "Giao diện mạng MGU",
+  "Apps": "Ứng dụng",
+  "Installed on MGU": "Đã cài trên MGU",
+  "System load": "Tải hệ thống",
+  "Lag & crash advisor": "Chẩn đoán lag / crash & Xử lý",
+  "MGU apps & resources": "Chi tiết ứng dụng & tài nguyên",
+  "Sort: RAM": "Xếp: RAM",
+  "Sort: CPU": "Xếp: CPU",
+  "Sort: Disk": "Xếp: Ổ cứng",
+  "Sort: Name": "Xếp: Tên",
+  "Show: All": "Lọc: Tất cả",
+  "Show: Apps": "Lọc: Ứng dụng",
+  "Show: Running": "Lọc: Đang chạy",
+  "Refresh": "Làm mới"
 }

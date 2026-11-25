@@ -47,8 +47,86 @@ const i18n = require(path.join(stageJs, 'kit', 'i18n'));
 const { diagnosticText } = require(path.join(stageJs, 'diagnostic-text'));
 const { NRC } = require(path.join(stageJs, 'kit', 'diag'));
 const { Recorder } = require(path.join(stageJs, 'kit', 'record'));
+const { Canvas } = require(path.join(stageJs, 'kit', 'canvas'));
+const G = require(path.join(stageJs, 'kit', 'gauges'));
 const themes = require(path.join(stageJs, 'kit', 'themes'));
+const mguApps = require(path.join(stageJs, 'mgu-apps'));
 const spec = JSON.parse(fs.readFileSync(path.join(stageJs, 'kit', 'app-spec.json'), 'utf8'));
+
+// 3b. Deterministic MGU storage checks (must never inflate ~119 GB to ~600 GB from mapper/dm/USB mounts)
+{
+    const GiB = 1073741824;
+    const mguMounts = [
+        '/dev/root / ext4 ro,noatime 0 0',
+        '/dev/sda2 / ext4 ro,noatime 0 0',
+        '/dev/sda6 /var/opt ext4 rw,noatime 0 0',
+        '/dev/sda6 /var/opt/public ext4 rw,noatime 0 0',
+        '/dev/dm-0 /mnt/nav squashfs ro 0 0',
+        '/dev/mapper/speech_vol /mnt/speech ext4 ro 0 0',
+        '/dev/mapper/var_opt_alias /var/opt/alias ext4 rw 0 0',
+        '/dev/shm /dev/shm tmpfs rw 0 0',
+        '/dev/sdb1 /media/USB500 exfat rw 0 0',
+    ].join('\n');
+    const noisyDf = [
+        'Filesystem 1024-blocks Used Available Capacity Mounted on',
+        '/dev/root 8388608 6291456 2097152 75% /',
+        '/dev/sda2 8388608 6291456 2097152 75% /',
+        '/dev/sda6 96468992 8178892 88290100 9% /var/opt',
+        '/dev/sda6 96468992 8178892 88290100 9% /var/opt/public',
+        '/dev/mapper/var_opt_alias 96468992 8178892 88290100 9% /var/opt/alias',
+        '/dev/dm-0 41943040 41943040 0 100% /mnt/nav',
+        '/dev/mapper/speech_vol 31457280 30000000 1457280 96% /mnt/speech',
+        '/dev/shm 2889728 12000 2877728 1% /dev/shm',
+        '/dev/sdb1 488386560 100000000 388386560 21% /media/USB500',
+    ].join('\n');
+    const stDevs = { '/': 2050, '/var/opt': 2054, '/var/opt/public': 2054, '/var/opt/alias': 2054 };
+    const parsed = mguApps.parseDfOutput(noisyDf, 'linux', {
+        mountsText: mguMounts,
+        blockNames: ['sda', 'sdb', 'dm-0'],
+        // Simulate 128 GB internal flash (119.2 GiB) + external 500 GB USB SSD with removable=0!
+        readBlockNum: (b, leaf) => {
+            if (leaf === 'removable') return 0;
+            if (leaf === 'size') return b === 'sda' ? 250069680 : b === 'sdb' ? 976773168 : 83886080;
+            return null;
+        },
+        readBlockLink: (b) => (b === 'sdb'
+            ? '/sys/devices/pci0000:00/0000:00:15.0/usb2/2-1/2-1:1.0/host1/target1:0:0/1:0:0:0/block/sdb'
+            : '/sys/devices/pci0000:00/0000:00:12.0/ata1/host0/target0:0:0/0:0:0:0/block/sda'),
+        statDev: (mnt) => (Object.prototype.hasOwnProperty.call(stDevs, mnt) ? stDevs[mnt] : null),
+    });
+    assert(parsed, 'parseDfOutput must return storage info on MGU');
+    assert.strictEqual(Math.round(parsed.totalBytes / GiB), 119, 'MGU total storage must stay locked at 119 GiB, never ~600 GB');
+    assert.strictEqual(Math.round((parsed.freeBytes / GiB) * 10) / 10, 84.2, 'MGU free space must equal writable /var/opt without double-counting');
+}
+
+// 3c. Verify all 5 tabs + Settings fit inside the real 1256 px MGU header strip in both VI and EN
+for (const lang of ['vi', 'en']) {
+    i18n.setLanguage(lang);
+    const hdrCv = new Canvas(1920, 720);
+    const tabs = ['Faults  1/2', 'Check Control', 'Control units', 'MGU status', 'Apps', 'Settings'];
+    G.header(hdrCv, themes.theme('m_tricolour'), 84, 0, 1256, 80, 'MGU Diagnostics', tabs, 0, [{ text: 'DEMO' }], true, true);
+    const rects = hdrCv.tabRects || [];
+    assert.deepStrictEqual(rects.map((x) => x.i), tabs.map((x, i) => i), lang + ': all 6 tabs must fit in 1256px MGU header');
+}
+i18n.setLanguage('vi');
+
+// 3d. Verify lag & crash advisor diagnostics
+{
+    const baseSnap = {
+        rows: [
+            { id: 'jap_ridetube', kind: 'app', customTitle: null, running: true, procCount: 1, cpuPct: 42, memBytes: 160 * 1048576, rssBytes: 210 * 1048576, swapBytes: 0, diskBytes: 50 * 1048576 },
+        ],
+        oapFailDelta: 0,
+        pendingCount: 0,
+    };
+    const critOap = mguApps.diagnoseHealth(baseSnap, { oapUsedMB: 910, oapCapMB: 1000, ramPct: 68, cpuPct: 35, load1: 1.5, upSec: 900, diskFreeBytes: 50e9 }, 'vi');
+    assert.strictEqual(critOap.level, 'crit');
+    assert(critOap.headline.indexOf('RideTube') >= 0, 'OAP saturation advisor must name top RAM hog');
+
+    const bootLoad = mguApps.diagnoseHealth(baseSnap, { oapUsedMB: 598, oapCapMB: 1000, ramPct: 62, cpuPct: 80, load1: 8.47, upSec: 214, diskFreeBytes: 84e9 }, 'vi');
+    assert.strictEqual(bootLoad.level, 'warn');
+    assert(bootLoad.badge.indexOf('KHỞI ĐỘNG') >= 0, 'advisor must distinguish post-boot load storm');
+}
 
 // Verify NRC translations in Vietnamese and clean English switch
 i18n.setLanguage('vi');
@@ -77,6 +155,7 @@ i18n.setLanguage('vi');
     fs.mkdirSync(dataDir);
     let renderCount = 0, lastWords = null, gpuSim = false;
     const drawnTexts = [];
+    let lastTargets = [];
     const clicks = {}, watches = {}, tasu = {};
     const settingsVals = {};
     spec.settings.forEach((s) => { settingsVals[s.key] = s.default; });
@@ -91,7 +170,7 @@ i18n.setLanguage('vi');
                 log: { info: () => {}, warn: () => {}, error: (e) => { throw new Error(String(e)); }, debug: () => {} },
                 ui: {
                     text: () => Promise.resolve(),
-                    image: async (name, cv) => { renderCount++; lastWords = new Uint32Array(cv.words()); },
+                    image: async (name, cv) => { renderCount++; lastWords = new Uint32Array(cv.words()); lastTargets = cv.targets || []; },
                     onClick: (name, fn) => { clicks[name] = fn; },
                     onVisible: () => {},
                     onFocus: () => {},
@@ -128,7 +207,7 @@ i18n.setLanguage('vi');
                 },
                 hideButton: () => {},
                 onLayout: () => {},
-                onScroll: () => {},
+                onScroll: (fn) => { clicks._scroll = fn; },
                 onTab: (fn) => { clicks._tab = fn; },
                 loop: (name, fps, fn) => { clicks._tick = fn; return { kick: () => {}, stop: () => {} }; },
             };
@@ -223,6 +302,49 @@ i18n.setLanguage('vi');
     clicks._tab(2); // Control units tab
     await clicks._tick();
     assert(!drawnTexts.some((s) => s.indexOf('Đã xóa') >= 0), 'Control units tab must not show Faults clear banner');
+
+    // Open new Apps & resources tab (tab index 4) and verify installed apps, versions, CPU/RAM/GPU/Disk & interactive buttons
+    assert.strictEqual(i18n.t('Apps'), 'Ứng dụng');
+    assert.strictEqual(i18n.t('Installed on MGU'), 'Đã cài trên MGU');
+    assert.strictEqual(i18n.t('System load'), 'Tải hệ thống');
+    assert.strictEqual(i18n.t('Lag & crash advisor'), 'Chẩn đoán lag / crash & Xử lý');
+    assert.strictEqual(i18n.t('MGU apps & resources'), 'Chi tiết ứng dụng & tài nguyên');
+    drawnTexts.length = 0;
+    clicks._tab(4);
+    await clicks._tick();
+    assert(drawnTexts.some((s) => s === 'ỨNG DỤNG / DỊCH VỤ'), 'Apps tab must render Vietnamese table headers');
+    assert(drawnTexts.some((s) => s === 'TRẠNG THÁI · GPU'), 'Apps tab must render GPU state column');
+    assert(drawnTexts.some((s) => s === 'DUNG LƯỢNG'), 'Apps tab must render storage column');
+    assert(drawnTexts.some((s) => s.indexOf('RideTube') >= 0), 'Apps tab must list top RAM consumer first');
+    assert(drawnTexts.some((s) => /MB · RSS \d+M/.test(s)), 'Apps tab must display per-app private and RSS RAM');
+    assert(lastTargets.some((t) => t.key === 'appSort'), 'Apps tab must expose interactive Sort button');
+    assert(lastTargets.some((t) => t.key === 'appFilter'), 'Apps tab must expose interactive Filter button');
+
+    // Scroll down on Apps tab (let spring glide settle across frames) and verify MGU Diagnostics + version appear
+    assert.strictEqual(clicks._scroll(240), true, 'Apps tab list must support touch/knob scrolling');
+    await new Promise((r) => setTimeout(r, 120));
+    await clicks._tick();
+    await new Promise((r) => setTimeout(r, 120));
+    drawnTexts.length = 0;
+    await clicks._tick();
+    assert(drawnTexts.some((s) => s.indexOf('MGU Diagnostics') >= 0), 'Scrolling Apps tab must reveal MGU Diagnostics');
+    assert(drawnTexts.some((s) => s === 'v' + spec.version), 'Apps tab must display current app version');
+
+    // Exercise sort & filter cycling + English clean switch on Apps tab
+    lastTargets.find((t) => t.key === 'appSort').run(); // -> Sort: CPU
+    lastTargets.find((t) => t.key === 'appFilter').run(); // -> Show: Apps
+    drawnTexts.length = 0;
+    await clicks._tick();
+    assert(drawnTexts.some((s) => s.indexOf('XẾP: CPU') >= 0), 'Sort button must cycle to CPU');
+    assert(drawnTexts.some((s) => s.indexOf('LỌC: ỨNG DỤNG') >= 0), 'Filter button must cycle to Apps');
+
+    i18n.setLanguage('en');
+    drawnTexts.length = 0;
+    await clicks._tick();
+    assert(drawnTexts.some((s) => s === 'APP / SERVICE'), 'Apps tab must switch cleanly to English');
+    assert(drawnTexts.some((s) => s.indexOf('SORT: CPU') >= 0), 'Sort button must switch to English');
+    assert(!drawnTexts.some((s) => s.indexOf('ỨNG DỤNG') >= 0), 'English Apps tab must not leak Vietnamese text');
+    i18n.setLanguage('vi');
 
     fs.rmSync(stageParent, { recursive: true, force: true });
     fs.rmSync(path.join(ROOT, 'dist'), { recursive: true, force: true });

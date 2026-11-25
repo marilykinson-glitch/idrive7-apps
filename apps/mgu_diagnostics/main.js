@@ -26,9 +26,10 @@ const { fitText } = require('./kit/text-layout');
 const { diagnosticText } = require('./diagnostic-text');
 const { t: translateUI, plural, getLanguage } = require('./kit/i18n');
 const { Diag, parseDtcReply, statusInfo, hex, NRC } = require('./kit/diag');
+const { MguAppsMonitor, parseDfOutput, storageTargets, viewRows, diagnoseHealth, fmtSize } = require('./mgu-apps');
 const DEMO = require('./demo');
 
-const W = 1600, H = 520, PER_PAGE = 6;
+const W = 1600, H = 520, PER_PAGE = 6, EXTRA_PAGES = 4;
 const GO = '#2fd27a';
 const uiPair = (en, vi) => (getLanguage() === 'en' ? en : vi);
 const pad2 = (n) => String(n).padStart(2, '0');
@@ -479,96 +480,25 @@ mgu.run({
             return pad2(d.getUTCDate()) + '.' + pad2(d.getUTCMonth() + 1) + '. ' + pad2(d.getUTCHours()) + ':' + pad2(d.getUTCMinutes());
         };
 
-        /* ---------- hardware & OS sampler (1 Hz max) ---------- */
+        /* ---------- hardware, storage & installed apps sampler ---------- */
+        const appsMon = new MguAppsMonitor({
+            selfId: ctx.spec.id || 'mgu_diagnostics',
+            selfTitle: ctx.spec.title || 'MGU Diagnostics',
+            selfVersion: ctx.spec.version || '0.2.0',
+            dataDir: ctx.dataDir,
+        });
         const sys = {
             sampledAt: 0, gpsCheckedAt: 0, diskCheckedAt: 0, diskBusy: false, prevCpu: null,
             cpuPct: null, cpuHist: [], cpuCores: 0, load1: null,
             memUsedMB: 0, memTotalMB: 0, ramPct: 0,
             diskTotalBytes: null, diskFreeBytes: null, diskUsedPct: 0,
-            oapUsedMB: null, oapCapMB: null, rssMB: 0, swapMB: null,
+            oapUsedMB: null, oapCapMB: null, oapFailCnt: null, rssMB: 0, swapMB: null,
             gpuMHz: null, socTempC: null, upSec: 0,
             osLabel: '', activeIf: [], reports: 0, reportBytes: 0,
         };
         const safeOs = (fn, fallback) => { try { return fn ? fn() : fallback; } catch (e) { return fallback; } };
         const readNumFile = (f) => { try { const n = Number(fs.readFileSync(f, 'utf8').trim()); return Number.isFinite(n) ? n : null; } catch (e) { return null; } };
         const DF_BIN = fs.existsSync('/bin/df') ? '/bin/df' : fs.existsSync('/usr/bin/df') ? '/usr/bin/df' : 'df';
-
-        function readInternalDiskBytes() {
-            let sum = 0;
-            try {
-                fs.readdirSync('/sys/block').forEach((b) => {
-                    if (!/^(mmcblk\d+|nvme\d+n\d+|sd[a-z]+|vd[a-z]+)$/.test(b)) return;
-                    if (readNumFile('/sys/block/' + b + '/removable') === 1) return;
-                    const sectors = readNumFile('/sys/block/' + b + '/size');
-                    if (sectors !== null && sectors * 512 >= 512 * 1048576) sum += sectors * 512;
-                });
-            } catch (e) { /* non-Linux */ }
-            return sum > 0 ? sum : null;
-        }
-
-        function parseDfOutput(stdout, platform) {
-            const removable = [];
-            try {
-                fs.readdirSync('/sys/block').forEach((b) => {
-                    if (readNumFile('/sys/block/' + b + '/removable') === 1) removable.push('/dev/' + b);
-                });
-            } catch (e) { /* ignore */ }
-            let mountsText = '';
-            try { mountsText = fs.readFileSync('/proc/mounts', 'utf8'); } catch (e) { /* non-Linux */ }
-            const devRw = Object.create(null), mntRw = Object.create(null);
-            if (mountsText) {
-                mountsText.split('\n').forEach((line) => {
-                    const p = line.trim().split(/\s+/);
-                    if (p.length < 4) return;
-                    const opts = p[3].split(',');
-                    const rw = opts.indexOf('rw') >= 0 && opts.indexOf('ro') < 0;
-                    mntRw[p[1]] = rw;
-                    if (rw) devRw[p[0]] = true;
-                });
-            }
-            const rows = [];
-            String(stdout || '').split('\n').slice(1).forEach((line) => {
-                const m = /^(\S+)\s+(\d+)\s+(\d+)\s+(\d+)\s+\S+\s+(.+)$/.exec(line.trim());
-                if (!m) return;
-                const dev = m[1], totalK = Number(m[2]), usedK = Number(m[3]), availK = Number(m[4]), mnt = m[5].trim();
-                if (!/^\/dev\//.test(dev) || /^\/dev\/(loop|ram|zram|fd|sr)/.test(dev) || !(totalK > 0)) return;
-                if (removable.some((pfx) => dev.indexOf(pfx) === 0)) return;
-                rows.push({ dev, totalK, usedK, availK, mnt });
-            });
-            if (!rows.length) return null;
-            if (platform === 'darwin') {
-                const pick = rows.find((r) => r.mnt === '/System/Volumes/Data') || rows.find((r) => r.mnt === '/') || rows[0];
-                return { totalBytes: pick.totalK * 1024, freeBytes: pick.availK * 1024 };
-            }
-            const byDev = new Map();
-            rows.forEach((r) => {
-                const isRw = !mountsText ? true : !!(devRw[r.dev] || mntRw[r.mnt]);
-                const prev = byDev.get(r.dev);
-                if (!prev || (!prev.isRw && isRw)) byDev.set(r.dev, { totalK: r.totalK, usedK: r.usedK, availK: r.availK, isRw });
-            });
-            const rootEntry = byDev.get('/dev/root');
-            if (rootEntry && byDev.size > 1) {
-                Array.from(byDev.keys()).some((k) => {
-                    if (k === '/dev/root') return false;
-                    const v = byDev.get(k);
-                    if (v.totalK === rootEntry.totalK && v.usedK === rootEntry.usedK) {
-                        if (v.isRw) rootEntry.isRw = true;
-                        byDev.delete(k);
-                        return true;
-                    }
-                    return false;
-                });
-            }
-            let totalK = 0, freeK = 0;
-            byDev.forEach((v) => {
-                totalK += v.totalK;
-                if (v.isRw) freeK += v.availK;
-            });
-            const hwBytes = readInternalDiskBytes();
-            const mountedBytes = totalK * 1024, freeBytes = freeK * 1024;
-            const totalBytes = hwBytes !== null && hwBytes > mountedBytes ? hwBytes : mountedBytes;
-            return totalBytes > 0 ? { totalBytes, freeBytes: Math.min(totalBytes, freeBytes) } : null;
-        }
 
         function applyDiskStats(info) {
             if (!info || !(info.totalBytes > 0)) return;
@@ -585,25 +515,23 @@ mgu.run({
             sys.diskCheckedAt = nowMs;
             sys.diskBusy = true;
             const pf = safeOs(os.platform, '');
-            const finishFallback = () => {
-                try {
-                    cp.execFile(DF_BIN, ['-kP', ctx.dataDir], { timeout: 2000 }, (e2, out2) => {
-                        sys.diskBusy = false;
-                        const parsed = parseDfOutput(out2, pf);
-                        if (parsed) applyDiskStats(parsed);
-                    });
-                } catch (e) { sys.diskBusy = false; }
-            };
+            // Query explicit internal MGU paths only (never bare `df -kP`, which walks USB sticks and /dev/mapper aliases)
+            const targets = storageTargets(ctx.dataDir, pf);
             try {
-                cp.execFile(DF_BIN, ['-kP'], { timeout: 2500 }, (err, stdout) => {
-                    // Parse stdout even on exit code 1 (df exits 1 on Linux when one unrelated mount is 0700)
+                cp.execFile(DF_BIN, ['-kP'].concat(targets), { timeout: 2500 }, (err, stdout) => {
                     const parsed = parseDfOutput(stdout, pf);
                     if (parsed) {
                         sys.diskBusy = false;
                         applyDiskStats(parsed);
-                    } else {
-                        finishFallback();
+                        return;
                     }
+                    try {
+                        cp.execFile(DF_BIN, ['-kP', ctx.dataDir], { timeout: 2000 }, (e2, out2) => {
+                            sys.diskBusy = false;
+                            const p2 = parseDfOutput(out2, pf);
+                            if (p2) applyDiskStats(p2);
+                        });
+                    } catch (e3) { sys.diskBusy = false; }
                 });
             } catch (e) {
                 sys.diskBusy = false;
@@ -672,8 +600,10 @@ mgu.run({
             // OAP cgroup memory & process RSS
             const cgU = readNumFile(CG_MEM + 'memory.usage_in_bytes');
             const cgL = readNumFile(CG_MEM + 'memory.limit_in_bytes');
+            const cgF = readNumFile(CG_MEM + 'memory.failcnt');
             sys.oapUsedMB = cgU !== null && cgU >= 0 ? cgU / 1048576 : null;
             sys.oapCapMB = cgL !== null && cgL > 0 && cgL / 1048576 < 65536 ? cgL / 1048576 : null;
+            sys.oapFailCnt = cgF !== null && cgF >= 0 ? cgF : null;
             sys.rssMB = safeOs(() => Math.round(process.memoryUsage().rss / 1048576), 0);
 
             // GPU frequency & SoC temperature on MGU
@@ -815,7 +745,7 @@ mgu.run({
                 setMsg('Scan failed: ' + detail, 'Quét lỗi thất bại: ' + detail, true);
             }
             busy = false;
-            if (page < pageCount() - 1) page = 0;
+            if (!onLivePage()) page = 0;
             ui.text('BTN_SCAN', scan ? 'Scan again' : 'Scan now');
             changed();
         }
@@ -971,13 +901,28 @@ mgu.run({
         let perPage = PER_PAGE;
         let scrolls = false;
         let gliding = false;
-        const scroll = { faults: { y: 0, max: 0 }, cc: { y: 0, max: 0 }, ecus: { y: 0, max: 0 } };
+        let appSort = 'ram';     // 'ram' | 'cpu' | 'disk' | 'name'
+        let appFilter = 'all';   // 'all' | 'apps' | 'running'
+        const SORT_ORDER = ['ram', 'cpu', 'disk', 'name'];
+        const SORT_LABELS = { ram: 'Sort: RAM', cpu: 'Sort: CPU', disk: 'Sort: Disk', name: 'Sort: Name' };
+        const FILTER_ORDER = ['all', 'apps', 'running'];
+        const FILTER_LABELS = { all: 'Show: All', apps: 'Show: Apps', running: 'Show: Running' };
+        const scroll = { faults: { y: 0, max: 0 }, cc: { y: 0, max: 0 }, ecus: { y: 0, max: 0 }, apps: { y: 0, max: 0 } };
         let only = null;
         const faults = () => (scan ? [].concat(...scan.ecus.map((e) => e.dtcs.map((d) => Object.assign({ addr: e.addr }, d)))) : []);
         const listed = () => (only === null ? faults() : faults().filter((d) => d.addr === only));
-        const pageCount = () => (scrolls ? 1 : Math.max(1, Math.ceil(listed().length / perPage))) + 3;
-        const onSystemPage = () => page === pageCount() - 1;
-        const shownList = () => { const fp = pageCount() - 3; return page < fp ? scroll.faults : page === fp ? scroll.cc : page === fp + 1 ? scroll.ecus : null; };
+        const pageCount = () => (scrolls ? 1 : Math.max(1, Math.ceil(listed().length / perPage))) + EXTRA_PAGES;
+        const isStatusPage = () => page === pageCount() - 2;
+        const isAppsPage = () => page === pageCount() - 1;
+        const onLivePage = () => isStatusPage() || isAppsPage();
+        const shownList = () => {
+            const fp = pageCount() - EXTRA_PAGES;
+            if (page < fp) return scroll.faults;
+            if (page === fp) return scroll.cc;
+            if (page === fp + 1) return scroll.ecus;
+            if (page === fp + 3) return scroll.apps;
+            return null;
+        };
         ctx.onScroll((dy) => {
             const s = shownList();
             if (!s) return false;
@@ -995,6 +940,9 @@ mgu.run({
             const dir = path.join(ctx.dataDir, 'reports');
             if (!fs.existsSync(dir)) fs.mkdirSync(dir);
             const nowMs = Date.now(), clk = nowClock(nowMs, false);
+            sampleSystem(nowMs);
+            const appSnap = appsMon.sample(nowMs, { gpuActive: false });
+            const adv = diagnoseHealth(appSnap, sys, getLanguage());
             const stamp = clk.isoLocal.replace(/[:.+]/g, '-');
             const file = path.join(dir, 'mgu-diagnostics-' + stamp + '.json');
             const report = {
@@ -1007,6 +955,22 @@ mgu.run({
                 source: scan.demo ? 'demo' : 'vehicle',
                 scanAt: new Date(scan.at).toISOString(),
                 scanVehicleTime: when(scan.at),
+                mguSystem: {
+                    os: sys.osLabel || null,
+                    uptimeSeconds: sys.upSec,
+                    cpuPercent: sys.cpuPct !== null ? Math.round(sys.cpuPct) : null,
+                    load1: sys.load1,
+                    ramUsedMB: Math.round(sys.memUsedMB),
+                    ramTotalMB: Math.round(sys.memTotalMB),
+                    oapUsedMB: sys.oapUsedMB !== null ? Math.round(sys.oapUsedMB) : null,
+                    oapLimitMB: sys.oapCapMB !== null ? Math.round(sys.oapCapMB) : null,
+                    storageTotalBytes: sys.diskTotalBytes,
+                    storageFreeBytes: sys.diskFreeBytes,
+                    installedApps: appSnap.appCount,
+                    installedTools: appSnap.toolCount,
+                    healthStatus: adv.badge,
+                    healthHeadline: adv.headline,
+                },
                 controlUnits: scan.ecus.map((e) => ({
                     address: '0x' + hex(e.addr),
                     name: ecuName(e.addr),
@@ -1046,8 +1010,8 @@ mgu.run({
         }
 
         function header(cv, t) {
-            const fp = pageCount() - 3, sel = page < fp ? 0 : page === fp ? 1 : page === fp + 1 ? 2 : 3;
-            G.frame(cv, t, ['Faults' + (fp > 1 ? '  ' + (Math.min(page, fp - 1) + 1) + '/' + fp : ''), 'Check Control', 'Control units', 'MGU status'], sel,
+            const fp = pageCount() - EXTRA_PAGES, sel = page < fp ? 0 : page - fp + 1;
+            G.frame(cv, t, ['Faults' + (fp > 1 ? '  ' + (Math.min(page, fp - 1) + 1) + '/' + fp : ''), 'Check Control', 'Control units', 'MGU status', 'Apps'], sel,
                 [(scan && scan.demo || (!scan && useDemo())) && { text: 'DEMO' }]);
         }
 
@@ -1470,26 +1434,227 @@ mgu.run({
             litText(cv, uiPair('Read-only · Safe', 'Chỉ đọc · An toàn'), 1558, netFootY, 16, GO, { align: 'right', font: 'bold' });
         }
 
-        let drawn = -1, drawnSec = -1;
+        function drawApps(cv, t, nowMs, gpuActive) {
+            sampleSystem(nowMs);
+            const snap = appsMon.sample(nowMs, { gpuActive });
+            const lang = getLanguage();
+
+            /* ---- 1. Top Summary Cards + Lag & Crash Advisor ---- */
+            G.panel(cv, t, 24, 44, 316, 115, 'Installed on MGU');
+            litText(cv, String(snap.appCount + snap.toolCount), 42, 140, 58, t.text, { font: 'num' });
+            litText(cv, uiPair(snap.appCount + ' apps · ' + snap.toolCount + ' tools', snap.appCount + ' app · ' + snap.toolCount + ' dịch vụ'),
+                322, 111, 17, t.text, { align: 'right', font: 'bold' });
+            litText(cv, snap.runningCount + ' ' + uiPair('active now', 'đang chạy'), 322, 139, 17, GO, { align: 'right', font: 'bold' });
+
+            G.panel(cv, t, 356, 44, 396, 115, 'System load');
+            const gStats = ctx.display && ctx.display.gpu && ctx.display.gpu.stats;
+            const fpsTxt = gStats && gStats.fps > 0 ? gStats.fps + ' FPS' : '60 FPS';
+            const gpuHz = sys.gpuMHz || snap.gpuMHz;
+            const gpuHead = gpuActive ? (gpuHz ? 'GPU ' + gpuHz + ' MHz · ' + fpsTxt : 'GPU ' + fpsTxt) : uiPair('SOFTWARE', 'PHẦN MỀM');
+            litText(cv, gpuHead, 734, 80, 16, gpuActive ? GO : t.dim, { align: 'right', font: 'bold' });
+
+            const cpuV = sys.cpuPct !== null ? Math.round(sys.cpuPct) : null;
+            const cpuCol = cpuV === null ? t.dim : cpuV >= 85 ? t.crit : cpuV >= 65 ? t.warn : GO;
+            const hasCg = sys.oapUsedMB !== null && sys.oapCapMB !== null && sys.oapCapMB > 0;
+            const oapPct = hasCg ? G.clamp(Math.round(sys.oapUsedMB * 100 / sys.oapCapMB), 0, 100) : sys.ramPct;
+            const oapCol = oapPct >= 84 ? t.crit : oapPct >= 70 ? t.warn : t.accent;
+
+            litText(cv, 'CPU ' + (cpuV !== null ? cpuV + '%' : '--'), 374, 112, 17, cpuCol, { font: 'bold' });
+            litText(cv, hasCg ? ('OAP ' + Math.round(sys.oapUsedMB) + '/' + Math.round(sys.oapCapMB) + ' MB') : ('RAM ' + sys.ramPct + '%'),
+                734, 112, 17, oapCol, { align: 'right', font: 'bold' });
+            miniBar(cv, t, 374, 119, 166, 6, cpuV || 0, cpuCol);
+            miniBar(cv, t, 560, 119, 174, 6, oapPct, oapCol);
+
+            const ramLine = sys.memTotalMB > 0 ? 'RAM ' + Math.round(sys.memUsedMB) + '/' + Math.round(sys.memTotalMB) + ' MB' : 'RAM --';
+            const oapNote = snap.oapFailDelta > 0 ? uiPair('OOM hits: ' + snap.oapFailDelta, 'Tràn OAP: ' + snap.oapFailDelta)
+                : snap.oapPeakMB ? uiPair('Peak ' + snap.oapPeakMB + 'M', 'Đỉnh ' + snap.oapPeakMB + 'M')
+                    : (sys.swapMB !== null ? 'Swap ' + Math.round(sys.swapMB) + 'M' : '');
+            litText(cv, ramLine, 374, 144, 16, t.dim);
+            if (oapNote) litText(cv, oapNote, 734, 144, 16, snap.oapFailDelta > 0 ? t.crit : t.dim, { align: 'right' });
+
+            G.panel(cv, t, 768, 44, 808, 115, 'Lag & crash advisor');
+            const adv = diagnoseHealth(snap, sys, lang);
+            const advCol = adv.level === 'crit' ? t.crit : adv.level === 'warn' ? t.warn : GO;
+            const bw = Math.max(118, cv.textWidth(adv.badge, 15, { font: 'bold', literal: true }) + 26);
+            cv.roundRect(1558 - bw, 58, bw, 26, 6, withAlpha(advCol, 0.2));
+            litText(cv, adv.badge, 1558 - bw / 2, 76, 15, advCol, { align: 'center', font: 'bold' });
+            litText(cv, fitLit(cv, adv.headline, 18, 772, { font: 'bold' }), 786, 113, 18, t.text, { font: 'bold' });
+            litText(cv, fitLit(cv, adv.advice, 17, 772), 786, 141, 17, adv.level === 'ok' ? t.dim : advCol);
+
+            /* ---- 2. Scrollable Installed Apps & Resource Table ---- */
+            const p = G.panel(cv, t, 24, 176, 1552, 336, 'MGU apps & resources');
+            const panelTitle = translateUI('MGU apps & resources');
+            let bx = 42 + cv.textWidth(panelTitle, 26, { font: 'bold', literal: true }) + 22;
+            const controls = [
+                {
+                    label: SORT_LABELS[appSort],
+                    key: 'appSort',
+                    run: () => { appSort = SORT_ORDER[(SORT_ORDER.indexOf(appSort) + 1) % SORT_ORDER.length]; scroll.apps.y = 0; changed(); },
+                },
+                {
+                    label: FILTER_LABELS[appFilter],
+                    key: 'appFilter',
+                    run: () => { appFilter = FILTER_ORDER[(FILTER_ORDER.indexOf(appFilter) + 1) % FILTER_ORDER.length]; scroll.apps.y = 0; changed(); },
+                },
+                {
+                    label: 'Refresh',
+                    key: 'appRefresh',
+                    run: () => {
+                        sys.diskCheckedAt = 0;
+                        refreshStorage(Date.now());
+                        appsMon.sample(Date.now(), { force: true, gpuActive });
+                        changed();
+                    },
+                },
+            ];
+            controls.forEach((b) => {
+                const w = G.button(cv, t, bx, 189, 0, 40, translateUI(b.label), b.run, { key: b.key });
+                if (w > 0) bx += w + 10;
+            });
+
+            const diskSummary = (snap.measuredDiskBytes > 0 ? uiPair('Pkgs ' + fmtSize(snap.measuredDiskBytes), 'Gói cài ' + fmtSize(snap.measuredDiskBytes)) : '') +
+                (sys.diskTotalBytes !== null && sys.diskFreeBytes !== null
+                    ? (snap.measuredDiskBytes > 0 ? ' · ' : '') + uiPair(fmtBytes(sys.diskFreeBytes) + ' / ' + fmtBytes(sys.diskTotalBytes) + ' free',
+                        'Trống ' + fmtBytes(sys.diskFreeBytes) + ' / ' + fmtBytes(sys.diskTotalBytes))
+                    : '');
+            if (diskSummary) {
+                litText(cv, fitLit(cv, diskSummary, 19, Math.max(200, 1552 - bx - 16)), 1552, 213, 19, t.dim, { align: 'right' });
+            }
+
+            // Column headers
+            const hdrCol = (key) => (appSort === key ? t.accent : t.dim);
+            litText(cv, uiPair('APP / SERVICE', 'ỨNG DỤNG / DỊCH VỤ'), 48, 250, 15, hdrCol('name'), { font: 'bold', spacing: 0.6 });
+            litText(cv, uiPair('VERSION', 'PHIÊN BẢN'), 510, 250, 15, t.dim, { font: 'bold', spacing: 0.6 });
+            litText(cv, uiPair('STATE · GPU', 'TRẠNG THÁI · GPU'), 668, 250, 15, t.dim, { font: 'bold', spacing: 0.6 });
+            litText(cv, 'CPU', 1028, 250, 15, hdrCol('cpu'), { align: 'right', font: 'bold', spacing: 0.6 });
+            litText(cv, uiPair('RAM USAGE', 'BỘ NHỚ RAM'), 1304, 250, 15, hdrCol('ram'), { align: 'right', font: 'bold', spacing: 0.6 });
+            litText(cv, uiPair('STORAGE', 'DUNG LƯỢNG'), 1536, 250, 15, hdrCol('disk'), { align: 'right', font: 'bold', spacing: 0.6 });
+            cv.fillRect(48, 257, 1504, 1, withAlpha(t.tick, 0.35));
+
+            const allRows = viewRows(snap, appFilter, appSort, lang);
+            const dy = p.y + p.h - G.BOTTOM;
+            if (!allRows.length) {
+                litText(cv, uiPair('No matching apps or processes', 'Không có ứng dụng phù hợp bộ lọc'),
+                    800, 380 + Math.round(dy / 2), 26, t.dim, { align: 'center' });
+                return;
+            }
+
+            const rowH = 43;
+            const maxNonScroll = 5 + Math.floor(dy / rowH);
+            const rows = scrolls ? allRows : allRows.slice(0, maxNonScroll);
+            scrolled(cv, t, p, scroll.apps, 'apps', 260, 264, rows.length * rowH - 6, (sy, from, to) => rows.forEach((r, i) => {
+                const y = 264 + i * rowH - sy;
+                if (y + rowH < from || y > to) return;
+
+                // 1. Kind badge + App / Service name
+                const kindInfo = r.kind === 'app'
+                    ? { txt: 'APP', col: t.accent }
+                    : r.kind === 'tool'
+                        ? { txt: uiPair('TOOL', 'DỊCH VỤ'), col: '#3ec7e8' }
+                        : { txt: uiPair('CORE', 'HỆ THỐNG'), col: t.dim };
+                cv.roundRect(48, y + 5, 70, 24, 5, withAlpha(kindInfo.col, 0.18));
+                litText(cv, kindInfo.txt, 83, y + 22, 13, kindInfo.col, { align: 'center', font: 'bold' });
+
+                const nameSuffix = r.self ? uiPair(' (This app)', ' (Đang mở)') : (r.procCount > 1 ? ' ×' + r.procCount : '');
+                litText(cv, fitLit(cv, r.title + nameSuffix, 21, 364, { font: 'bold' }), 128, y + 24, 21, r.running ? t.text : t.dim, { font: 'bold' });
+
+                // 2. Version
+                const verTxt = !r.version ? '--' : (/^\d/.test(r.version) ? 'v' + r.version : r.version);
+                litText(cv, fitLit(cv, verTxt, 18, 144), 510, y + 24, 18, t.dim);
+
+                // 3. State + GPU pill
+                let stTxt, stCol, pillOn = true;
+                if (r.justRestarted) {
+                    stTxt = uiPair('CRASH / RESTART', 'VỪA CRASH');
+                    stCol = t.crit;
+                } else if (r.memLeakMB >= 24) {
+                    stTxt = uiPair('RAM +' + r.memLeakMB + 'M', 'TĂNG +' + r.memLeakMB + 'M');
+                    stCol = t.warn;
+                } else if (r.pendingReboot) {
+                    stTxt = uiPair('NEEDS REBOOT', 'CHỜ REBOOT');
+                    stCol = t.warn;
+                } else if (r.running && r.gpuTag) {
+                    stTxt = r.gpuTag;
+                    stCol = r.gpuTag === 'Software' ? t.dim : GO;
+                } else if (r.running) {
+                    stTxt = uiPair('RUNNING', 'ĐANG CHẠY');
+                    stCol = GO;
+                } else {
+                    stTxt = uiPair('Stopped', 'Đang nghỉ');
+                    stCol = t.dim;
+                    pillOn = false;
+                }
+                if (pillOn) {
+                    const pw = Math.min(218, Math.max(96, cv.textWidth(stTxt, 15, { font: 'bold', literal: true }) + 22));
+                    cv.roundRect(668, y + 4, pw, 26, 6, withAlpha(stCol, 0.18));
+                    litText(cv, fitLit(cv, stTxt, 15, pw - 14, { font: 'bold' }), 668 + pw / 2, y + 22, 15, stCol, { align: 'center', font: 'bold' });
+                } else {
+                    litText(cv, stTxt, 668, y + 23, 17, t.dim);
+                }
+
+                // 4. CPU %
+                if (r.running && r.cpuPct !== null) {
+                    const cCol = r.cpuPct >= 30 ? t.crit : r.cpuPct >= 12 ? t.warn : r.cpuPct >= 1 ? t.text : t.dim;
+                    const cTxt = (r.cpuPct >= 10 ? r.cpuPct.toFixed(0) : r.cpuPct.toFixed(1)) + '%';
+                    litText(cv, cTxt, 1028, y + 21, 20, cCol, { align: 'right', font: 'bold' });
+                    miniBar(cv, t, 964, y + 28, 64, 4, G.clamp(r.cpuPct * 2, 0, 100), cCol);
+                } else {
+                    litText(cv, '--', 1028, y + 23, 18, t.dim, { align: 'right' });
+                }
+
+                // 5. RAM usage (Private own memory + total RSS / Swap)
+                if (r.running && r.memBytes > 0) {
+                    const ownMB = Math.max(1, Math.round(r.memBytes / 1048576));
+                    const rssMB = Math.max(ownMB, Math.round(r.rssBytes / 1048576));
+                    const swapMB = Math.round((r.swapBytes || 0) / 1048576);
+                    const mCol = (r.kind !== 'system' && ownMB >= 140) ? t.crit : (r.kind !== 'system' && ownMB >= 90) ? t.warn : t.text;
+                    const detail = swapMB > 0 ? (ownMB + ' MB · Swap ' + swapMB + 'M') : (ownMB + ' MB · RSS ' + rssMB + 'M');
+                    litText(cv, fitLit(cv, detail, 19, 248, { font: 'bold' }), 1304, y + 21, 19, mCol, { align: 'right', font: 'bold' });
+                    const barScale = r.kind === 'system' ? 1200 : 220;
+                    miniBar(cv, t, 1184, y + 28, 120, 4, G.clamp(ownMB * 100 / barScale, 0, 100), mCol === t.text ? t.accent : mCol);
+                } else {
+                    litText(cv, '--', 1304, y + 23, 18, t.dim, { align: 'right' });
+                }
+
+                // 6. Disk size
+                if (r.diskBytes !== null && r.diskBytes > 0) {
+                    const dCol = r.diskBytes >= 80 * 1048576 ? t.warn : t.text;
+                    litText(cv, fmtSize(r.diskBytes), 1536, y + 23, 19, dCol, { align: 'right', font: 'bold' });
+                } else if (r.diskProtected) {
+                    litText(cv, uiPair('OAP sandbox', 'Bảo mật OAP'), 1536, y + 23, 16, t.dim, { align: 'right' });
+                } else {
+                    litText(cv, '--', 1536, y + 23, 18, t.dim, { align: 'right' });
+                }
+
+                if (i < rows.length - 1) cv.fillRect(48, y + rowH - 5, 1504, 1, withAlpha(t.tick, 0.22));
+            }));
+            if (!scrolls && allRows.length > rows.length) {
+                litText(cv, '+ ' + (allRows.length - rows.length) + ' ' + uiPair('more', 'khác'), 1536, 506 + dy, 18, t.dim, { align: 'right' });
+            }
+        }
+
+        let drawn = -1, drawnSec = -1, drawnAppsSlot = -1;
         async function render(force) {
             const nowMs = Date.now();
             const gpuActive = !!(ctx.display && ctx.display.active && ctx.display.active('MAIN'));
-            const sysTab = onSystemPage();
-            const curSec = Math.floor(nowMs / 1000);
-            const liveTick = sysTab && (gpuActive || curSec !== drawnSec);
+            const statusTab = isStatusPage(), appsTab = isAppsPage();
+            const curSec = Math.floor(nowMs / 1000), curAppsSlot = Math.floor(nowMs / 2000);
+            const liveTick = (statusTab && (gpuActive || curSec !== drawnSec)) || (appsTab && curAppsSlot !== drawnAppsSlot);
             if (!force && drawn === version && !gliding && phase !== 'scanning' && phase !== 'clearing' && !liveTick) return;
             drawn = version;
-            if (sysTab) drawnSec = curSec;
+            if (statusTab) drawnSec = curSec;
+            if (appsTab) drawnAppsSlot = curAppsSlot;
             gliding = false;
             const t = ctx.theme();
             const cv = ctx.canvas(W, H).clear(t.bg);
-            const fp0 = pageCount() - 3;
+            const fp0 = pageCount() - EXTRA_PAGES;
             scrolls = !!cv.own;
             perPage = PER_PAGE + Math.floor((G.pageBottom(cv) - G.BOTTOM) / 47);
-            const fp = pageCount() - 3;
+            const fp = pageCount() - EXTRA_PAGES;
             if (fp !== fp0) page = page >= fp0 ? fp + page - fp0 : Math.min(page, fp - 1);
             page = Math.min(page, pageCount() - 1);
-            if (page === pageCount() - 1) drawSystem(cv, t, nowMs, gpuActive);
+            if (page === fp + 2) drawSystem(cv, t, nowMs, gpuActive);
+            else if (page === fp + 3) drawApps(cv, t, nowMs, gpuActive);
             else {
                 tiles(cv, t);
                 if (page < fp) drawFaults(cv, t); else if (page === fp) drawCC(cv, t); else drawEcus(cv, t);
@@ -1529,7 +1694,7 @@ mgu.run({
         };
         ui.onClick('BTN_PAGE', () => onSwitchPage((page + 1) % pageCount()));
         ctx.onTab((i) => {
-            const fp = pageCount() - 3;
+            const fp = pageCount() - EXTRA_PAGES;
             const nextPage = i === 0 && page < fp ? (page + 1) % fp : i === 0 ? 0 : fp + i - 1;
             onSwitchPage(nextPage);
         });
